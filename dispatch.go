@@ -79,13 +79,21 @@ func (d *dispatch) SetDefaultHandler(handler HandlerFunc) {
 }
 
 // HandlePattern adds a given pattern to the bot's list of regexp expressions.
-// This pattern will be checked on every message that is not considered a
-// potential command (NOT sent @ the bot and NOT in a direct message).
-// If multiple patterns are added then they will be evaluated in the order of
-// insertion.
+// This is equivalent to calling HandleRegexp with a pre-compiled regular
+// expression. This uses regexp.MustCompile so it panics if given an
+// invalid regular expression.
 func (d *dispatch) HandlePattern(pattern string, handler HandlerFunc) {
+	d.HandleRegexp(regexp.MustCompile(pattern), handler)
+}
+
+// HandleRegexp adds a given regular expression to the bot's list of regexp
+// expressions. This expression will be checked on every message that is not
+// considered a potential command (NOT sent @ the bot and NOT in a
+// direct message). If multiple expressions are added then they will be
+// evaluated in the order of insertion.
+func (d *dispatch) HandleRegexp(exp *regexp.Regexp, handler HandlerFunc) {
 	d.patterns = append(d.patterns, &handlerPair{
-		exp:    regexp.MustCompile(pattern),
+		exp:    exp,
 		handle: handler,
 	})
 }
