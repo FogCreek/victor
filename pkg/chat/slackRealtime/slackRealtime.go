@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -17,6 +18,27 @@ const AdapterName = "slackRealtime"
 
 // Prefix for the user's ID which is used when reading/writing from the bot's store
 const userInfoPrefix = AdapterName + "."
+
+// Regex that a message should match in order to be considered a potential bot
+// command. Needs to be kept up to date with format in
+// github.com/brettbuddin/victor/pkg/handler.go in the Direct function.
+// TODO store this in only one place...
+const botRegexFormat = "(?i)\\A(?:(?:@)?%s[:,]?\\s*|/)"
+
+// channelGroupInfo is used instead of the slack library's Channel struct since we
+// are trying to consider channels and groups to be roughly the same while it
+// considers them seperate and provides no way to consolidate them on its own.
+//
+// This also allows us to throw our information that we don't care about (members, etc.).
+type channelGroupInfo struct {
+	Name      string
+	ID        string
+	IsDM      bool
+	UserID    string
+	IsChannel bool
+	// UserID is only stored for IM/DM's so we can then send a user a DM as a
+	// response if needed
+}
 
 // init registers SlackAdapter to the victor chat framework.
 func init() {
@@ -32,10 +54,13 @@ func init() {
 			os.Exit(1)
 		}
 		return &SlackAdapter{
-			robot:      r,
-			chSender:   make(chan *slack.OutgoingMessage),
-			chReceiver: make(chan slack.SlackEvent),
-			token:      sConfig.Token(),
+			robot:            r,
+			chReceiver:       make(chan slack.SlackEvent),
+			token:            sConfig.Token(),
+			channelInfo:      make(map[string]channelGroupInfo),
+			directMessageID:  make(map[string]string),
+			botRegex:         regexp.MustCompile(fmt.Sprintf(botRegexFormat, r.Name())),
+			botCommandPrefix: fmt.Sprintf("@%s: ", r.Name()),
 		}
 	})
 }
@@ -64,12 +89,15 @@ func (c configImpl) Token() string {
 
 // SlackAdapter holds all information needed by the adapter to send/receive messages.
 type SlackAdapter struct {
-	robot      chat.Robot
-	token      string
-	instance   *slack.Slack
-	wsAPI      *slack.SlackWS
-	chSender   chan *slack.OutgoingMessage
-	chReceiver chan slack.SlackEvent
+	robot            chat.Robot
+	token            string
+	instance         *slack.Slack
+	wsAPI            *slack.SlackWS
+	chReceiver       chan slack.SlackEvent
+	channelInfo      map[string]channelGroupInfo
+	directMessageID  map[string]string
+	botRegex         *regexp.Regexp
+	botCommandPrefix string
 }
 
 // Run starts the adapter and begins to listen for new messages to send/receive.
@@ -85,10 +113,57 @@ func (adapter *SlackAdapter) Run() {
 		log.Println(err.Error())
 		os.Exit(1)
 	}
+	adapter.initChannelMap()
 	// sets up the monitoring code for sending/receiving messages from slack
 	go adapter.wsAPI.HandleIncomingEvents(adapter.chReceiver)
 	go adapter.wsAPI.Keepalive(20 * time.Second)
 	adapter.monitorEvents()
+}
+
+func (adapter *SlackAdapter) initChannelMap() {
+	channels, err := adapter.instance.GetChannels(true)
+	if err != nil {
+		log.Printf("Error getting channel list: %s", err.Error())
+		return
+	}
+	groups, err := adapter.instance.GetGroups(true)
+	if err != nil {
+		log.Printf("Error getting group list: %s", err.Error())
+		return
+	}
+	ims, err := adapter.instance.GetIMChannels()
+	if err != nil {
+		log.Printf("Error getting IM (DM) channel list: %s", err.Error())
+		return
+	}
+	for _, channel := range channels {
+		if !channel.IsMember {
+			continue
+		}
+		// log.Printf("Loaded info for channel \"%s\"", channel.Name)
+		adapter.channelInfo[channel.Id] = channelGroupInfo{
+			ID:        channel.Id,
+			Name:      channel.Name,
+			IsChannel: true,
+		}
+	}
+	for _, group := range groups {
+		// log.Printf("Loaded info for group \"%s\"", group.Name)
+		adapter.channelInfo[group.Id] = channelGroupInfo{
+			ID:   group.Id,
+			Name: group.Name,
+		}
+	}
+	for _, im := range ims {
+		// log.Printf("Loaded info for IM \"%s\"", im.Id)
+		adapter.channelInfo[im.Id] = channelGroupInfo{
+			ID:     im.Id,
+			Name:   fmt.Sprintf("DM %s", im.Id),
+			IsDM:   true,
+			UserID: im.UserId,
+		}
+		adapter.directMessageID[im.UserId] = im.Id
+	}
 }
 
 // Stop stops the adapter.
@@ -128,18 +203,27 @@ func (adapter *SlackAdapter) getUser(userID string) (*slack.User, error) {
 
 func (adapter *SlackAdapter) handleMessage(event *slack.MessageEvent) {
 	user, _ := adapter.getUser(event.UserId)
+	channel, exists := adapter.channelInfo[event.ChannelId]
+	if !exists {
+		log.Printf("Unrecognized channel with ID %s", event.Id)
+		channel = channelGroupInfo{
+			Name: "Unrecognized",
+			ID:   event.ChannelId,
+		}
+	}
 	// TODO use error
 	if user != nil {
-		// ignore any messages that are sent by us
-		if user.Id == adapter.instance.GetInfo().User.Id {
+		// ignore any messages that are sent by any bot
+		if user.IsBot {
 			return
 		}
+		messageText := adapter.unescapeMessage(event.Text)
 		msg := slackMessage{
-			user:      user,
-			text:      adapter.unescapeMessage(event.Text),
-			channelID: event.ChannelId,
-			// TODO change or not needed?
-			channelName: event.ChannelId,
+			user:            user,
+			text:            messageText,
+			channelID:       channel.ID,
+			channelName:     channel.Name,
+			isDirectMessage: channel.IsDM,
 		}
 		adapter.robot.Receive(&msg)
 		log.Println(msg.Text())
@@ -168,14 +252,77 @@ func (adapter *SlackAdapter) monitorEvents() {
 		switch msg.Data.(type) {
 		case *slack.MessageEvent:
 			go adapter.handleMessage(msg.Data.(*slack.MessageEvent))
+		case *slack.ChannelJoinedEvent:
+			go adapter.joinedChannel(msg.Data.(*slack.ChannelJoinedEvent).Channel, true)
+		case *slack.GroupJoinedEvent:
+			go adapter.joinedChannel(msg.Data.(*slack.GroupJoinedEvent).Channel, false)
+		case *slack.IMCreatedEvent:
+			// could also use im open? https://api.slack.com/events/im_created
+			go adapter.joinedIM(msg.Data.(*slack.IMCreatedEvent))
+		case *slack.ChannelLeftEvent:
+			go adapter.leftChannel(msg.Data.(*slack.ChannelLeftEvent).ChannelId)
+		case *slack.GroupLeftEvent:
+			go adapter.leftChannel(msg.Data.(*slack.GroupLeftEvent).ChannelId)
+		case *slack.IMCloseEvent:
+			go adapter.leftIM(msg.Data.(*slack.IMCloseEvent))
 		}
 	}
+}
+
+func (adapter *SlackAdapter) joinedChannel(channel slack.Channel, isChannel bool) {
+	// log.Printf("Loaded info for channel/group \"%s\"", channel.Name)
+	adapter.channelInfo[channel.Id] = channelGroupInfo{
+		Name:      channel.Name,
+		ID:        channel.Id,
+		IsChannel: isChannel,
+	}
+}
+
+func (adapter *SlackAdapter) joinedIM(event *slack.IMCreatedEvent) {
+	// log.Printf("Loaded info for IM \"%s\"", event.Channel.Id)
+	adapter.channelInfo[event.Channel.Id] = channelGroupInfo{
+		Name:   event.Channel.Name,
+		ID:     event.Channel.Id,
+		IsDM:   true,
+		UserID: event.UserId,
+	}
+	adapter.directMessageID[event.UserId] = event.Channel.Id
+}
+
+func (adapter *SlackAdapter) leftIM(event *slack.IMCloseEvent) {
+	adapter.leftChannel(event.ChannelId)
+	delete(adapter.directMessageID, event.UserId)
+}
+
+func (adapter *SlackAdapter) leftChannel(channelID string) {
+	// log.Printf("Forgetting channel/group with ID %s", channelID)
+	delete(adapter.channelInfo, channelID)
 }
 
 // Send sends a message to the given slack channel.
 func (adapter *SlackAdapter) Send(channelID, msg string) {
 	msgObj := adapter.wsAPI.NewOutgoingMessage(msg, channelID)
 	adapter.wsAPI.SendMessage(msgObj)
+}
+
+func (adapter *SlackAdapter) SendDirectMessage(userID, msg string) {
+	channelID, err := adapter.getDirectMessageID(userID)
+	if err != nil {
+		log.Printf("Error getting direct message channel ID for user \"%s\": %s", userID, err.Error())
+		return
+	}
+	adapter.Send(channelID, msg)
+}
+
+func (adapter *SlackAdapter) getDirectMessageID(userID string) (string, error) {
+	// need to figure out if the first two bool return values are important
+	// https://github.com/nlopes/slack/blob/master/dm.go#L58
+	channel, exists := adapter.channelInfo[userID]
+	if !exists {
+		_, _, channelID, err := adapter.instance.OpenIMChannel(userID)
+		return channelID, err
+	}
+	return channel.ID, nil
 }
 
 // getStoreKey is a helper method to access the robot's store.
@@ -190,10 +337,15 @@ func (adapter *SlackAdapter) setStoreKey(key, val string) {
 
 // slackMessage is an internal struct implementing victor's message interface.
 type slackMessage struct {
-	user        *slack.User
-	text        string
-	channelID   string
-	channelName string
+	user            *slack.User
+	text            string
+	channelID       string
+	channelName     string
+	isDirectMessage bool
+}
+
+func (m *slackMessage) IsDirectMessage() bool {
+	return m.isDirectMessage
 }
 
 func (m *slackMessage) User() *slack.User {
@@ -222,4 +374,8 @@ func (m *slackMessage) ChannelName() string {
 
 func (m *slackMessage) Text() string {
 	return m.text
+}
+
+func (m *slackMessage) SetText(newText string) {
+	m.text = newText
 }

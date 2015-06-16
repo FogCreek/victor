@@ -28,6 +28,7 @@ type InitFunc func(Robot) Adapter
 type Adapter interface {
 	Run()
 	Send(string, string)
+	SendDirectMessage(string, string)
 	Stop()
 }
 
@@ -46,4 +47,6 @@ type Message interface {
 	ChannelID() string
 	ChannelName() string
 	Text() string
+	SetText(string)
+	IsDirectMessage() bool
 }

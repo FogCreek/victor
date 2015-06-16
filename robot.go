@@ -8,10 +8,10 @@ import (
 
 	"github.com/brettbuddin/victor/pkg/chat"
 	// Blank import used init adapters which registers them with victor
-	_ "github.com/brettbuddin/victor/pkg/chat/campfire"
-	_ "github.com/brettbuddin/victor/pkg/chat/hipchat"
-	_ "github.com/brettbuddin/victor/pkg/chat/shell"
-	_ "github.com/brettbuddin/victor/pkg/chat/slack"
+	// _ "github.com/brettbuddin/victor/pkg/chat/campfire"
+	// _ "github.com/brettbuddin/victor/pkg/chat/hipchat"
+	// _ "github.com/brettbuddin/victor/pkg/chat/shell"
+	// _ "github.com/brettbuddin/victor/pkg/chat/slack"
 	_ "github.com/brettbuddin/victor/pkg/chat/slackRealtime"
 	"github.com/brettbuddin/victor/pkg/httpserver"
 	"github.com/brettbuddin/victor/pkg/store"
@@ -26,9 +26,9 @@ type Robot interface {
 	Run()
 	Stop()
 	Name() string
-	HandleFunc(string, HandlerFunc)
-	Handle(string, Handler)
-	Direct(string) string
+	HandleCommand(string, HandlerFunc)
+	SetDefaultHandler(HandlerFunc)
+	HandlePattern(string, HandlerFunc)
 	Receive(chat.Message)
 	Chat() chat.Adapter
 	Store() store.Adapter

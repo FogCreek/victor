@@ -24,13 +24,13 @@ type State interface {
 	Robot() Robot
 	Chat() chat.Adapter
 	Message() chat.Message
-	Params() []string
+	Fields() []string
 }
 
 type state struct {
 	robot   Robot
 	message chat.Message
-	params  []string
+	fields  []string
 }
 
 // Returns the Robot
@@ -48,7 +48,6 @@ func (s *state) Message() chat.Message {
 	return s.message
 }
 
-// Returns the params parsed from the Message
-func (s *state) Params() []string {
-	return s.params
+func (s *state) Fields() []string {
+	return s.fields
 }
