@@ -128,7 +128,7 @@ func (r *robot) Run() {
 				close(r.incoming)
 				return
 			case m := <-r.incoming:
-				if strings.ToLower(m.UserName()) != r.name {
+				if strings.ToLower(m.User().Name()) != r.name {
 					go r.ProcessMessage(m)
 				}
 			}
@@ -196,7 +196,7 @@ func (r *robot) initHTTP() {
 // to execute a handler registered with the bot
 func OnlyAllow(userNames []string, action func(s State)) func(State) {
 	return func(s State) {
-		actual := s.Message().UserName()
+		actual := s.Message().User().Name()
 		for _, name := range userNames {
 			if name == actual {
 				action(s)

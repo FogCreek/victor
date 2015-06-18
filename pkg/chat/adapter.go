@@ -30,6 +30,11 @@ type Adapter interface {
 	Send(string, string)
 	SendDirectMessage(string, string)
 	Stop()
+	// ID should return a unique ID for that adapter which is guarenteed to
+	// remain constant as long as the adapter points to the same chat instance.
+	ID() string
+	GetUser(string) User
+	IsPotentialUser(string) bool
 }
 
 type Robot interface {
@@ -42,11 +47,18 @@ type Robot interface {
 }
 
 type Message interface {
-	UserID() string
-	UserName() string
+	User() User
 	ChannelID() string
 	ChannelName() string
 	Text() string
-	SetText(string)
 	IsDirectMessage() bool
+	ArchiveLink() string
+	Timestamp() string
+}
+
+type User interface {
+	ID() string
+	Name() string
+	EmailAddress() string
+	IsBot() bool
 }

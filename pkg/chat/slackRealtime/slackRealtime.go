@@ -1,7 +1,6 @@
 package slackRealtime
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -19,11 +18,14 @@ const AdapterName = "slackRealtime"
 // Prefix for the user's ID which is used when reading/writing from the bot's store
 const userInfoPrefix = AdapterName + "."
 
-// Regex that a message should match in order to be considered a potential bot
-// command. Needs to be kept up to date with format in
-// github.com/brettbuddin/victor/pkg/handler.go in the Direct function.
-// TODO store this in only one place...
-const botRegexFormat = "(?i)\\A(?:(?:@)?%s[:,]?\\s*|/)"
+const userIDRegexpString = "\\b<?@?(U[^\\s\\|]+)(?:(?:|\\S+)?>)"
+
+// Match "<@Userid>" and "<@UserID|fullname>"
+var userIDRegexp = regexp.MustCompile(userIDRegexpString)
+
+// Match "johndoe", "@johndoe",
+// not needed?
+// var userIDAndNameRegexp = regexp.MustCompile("\\A@?(\\w+)|" + userIDRegexpString)
 
 // channelGroupInfo is used instead of the slack library's Channel struct since we
 // are trying to consider channels and groups to be roughly the same while it
@@ -54,13 +56,12 @@ func init() {
 			os.Exit(1)
 		}
 		return &SlackAdapter{
-			robot:            r,
-			chReceiver:       make(chan slack.SlackEvent),
-			token:            sConfig.Token(),
-			channelInfo:      make(map[string]channelGroupInfo),
-			directMessageID:  make(map[string]string),
-			botRegex:         regexp.MustCompile(fmt.Sprintf(botRegexFormat, r.Name())),
-			botCommandPrefix: fmt.Sprintf("@%s: ", r.Name()),
+			robot:           r,
+			chReceiver:      make(chan slack.SlackEvent),
+			token:           sConfig.Token(),
+			channelInfo:     make(map[string]channelGroupInfo),
+			directMessageID: make(map[string]string),
+			userInfo:        make(map[string]slack.User),
 		}
 	})
 }
@@ -89,15 +90,56 @@ func (c configImpl) Token() string {
 
 // SlackAdapter holds all information needed by the adapter to send/receive messages.
 type SlackAdapter struct {
-	robot            chat.Robot
-	token            string
-	instance         *slack.Slack
-	wsAPI            *slack.SlackWS
-	chReceiver       chan slack.SlackEvent
-	channelInfo      map[string]channelGroupInfo
-	directMessageID  map[string]string
-	botRegex         *regexp.Regexp
-	botCommandPrefix string
+	robot           chat.Robot
+	token           string
+	instance        *slack.Slack
+	wsAPI           *slack.SlackWS
+	chReceiver      chan slack.SlackEvent
+	channelInfo     map[string]channelGroupInfo
+	directMessageID map[string]string
+	userInfo        map[string]slack.User
+	domain          string
+}
+
+// GetUser will parse the given user ID string and then return the user's
+// information as provided by the slack API. This will first try to get the
+// user's information from a local cache and then will perform a slack API
+// call if the user's information is not cached. Returns nil if the user does
+// not exist or if an error occurrs during the slack API call.
+func (adapter *SlackAdapter) GetUser(userIDStr string) chat.User {
+	if !adapter.IsPotentialUser(userIDStr) {
+		return nil
+	}
+	userID := normalizeUserID(userIDStr)
+	userObj, err := adapter.getUserFromSlack(userID)
+	if err != nil {
+		return nil
+	}
+	return &slackUser{
+		id:           userObj.Id,
+		name:         userObj.Name,
+		emailAddress: userObj.Profile.Email,
+		isBot:        userObj.IsBot,
+	}
+}
+
+// IsPotentialUser checks if a given string is potentially referring to a slack
+// user. Strings given to this function should be trimmed of leading whitespace
+// as it does not account for that (it is meant to be used with the fields
+// method on the frameworks calls to handlers which are trimmed).
+func (adapter *SlackAdapter) IsPotentialUser(userString string) bool {
+	return userIDRegexp.MatchString(userString)
+}
+
+// normalizeUserID returns a user's ID without the extra formatting that slack
+// might add. This will return "U01234567" for inputs: "U01234567",
+// "@U01234567", "<@U01234567>", and "<@U01234567|name>"
+func normalizeUserID(userID string) string {
+	userIDArr := userIDRegexp.FindAllStringSubmatch(userID, 1)
+	if len(userIDArr) == 0 {
+		return userID
+	}
+	return userIDArr[0][1]
 }
 
 // Run starts the adapter and begins to listen for new messages to send/receive.
@@ -109,53 +151,38 @@ func (adapter *SlackAdapter) Run() {
 	// TODO need to look up what these values actually mean...
 	var err error
 	adapter.wsAPI, err = adapter.instance.StartRTM("", "http://example.com")
+	// TODO remove fatal crash or recover from it elsewhere
 	if err != nil {
 		log.Println(err.Error())
-		os.Exit(1)
+		panic("Fatal error.")
 	}
-	adapter.initChannelMap()
+	adapter.initAdapterInfo()
 	// sets up the monitoring code for sending/receiving messages from slack
 	go adapter.wsAPI.HandleIncomingEvents(adapter.chReceiver)
 	go adapter.wsAPI.Keepalive(20 * time.Second)
 	adapter.monitorEvents()
 }
 
-func (adapter *SlackAdapter) initChannelMap() {
-	channels, err := adapter.instance.GetChannels(true)
-	if err != nil {
-		log.Printf("Error getting channel list: %s", err.Error())
-		return
-	}
-	groups, err := adapter.instance.GetGroups(true)
-	if err != nil {
-		log.Printf("Error getting group list: %s", err.Error())
-		return
-	}
-	ims, err := adapter.instance.GetIMChannels()
-	if err != nil {
-		log.Printf("Error getting IM (DM) channel list: %s", err.Error())
-		return
-	}
-	for _, channel := range channels {
+func (adapter *SlackAdapter) initAdapterInfo() {
+	info := adapter.instance.GetInfo()
+	adapter.domain = info.Team.Domain
+	for _, channel := range info.Channels {
 		if !channel.IsMember {
 			continue
 		}
-		// log.Printf("Loaded info for channel \"%s\"", channel.Name)
 		adapter.channelInfo[channel.Id] = channelGroupInfo{
 			ID:        channel.Id,
 			Name:      channel.Name,
 			IsChannel: true,
 		}
 	}
-	for _, group := range groups {
-		// log.Printf("Loaded info for group \"%s\"", group.Name)
+	for _, group := range info.Groups {
 		adapter.channelInfo[group.Id] = channelGroupInfo{
 			ID:   group.Id,
 			Name: group.Name,
 		}
 	}
-	for _, im := range ims {
-		// log.Printf("Loaded info for IM \"%s\"", im.Id)
+	for _, im := range info.IMs {
 		adapter.channelInfo[im.Id] = channelGroupInfo{
 			ID:     im.Id,
 			Name:   fmt.Sprintf("DM %s", im.Id),
@@ -164,6 +191,9 @@ func (adapter *SlackAdapter) initChannelMap() {
 		}
 		adapter.directMessageID[im.UserId] = im.Id
 	}
+	for _, user := range info.Users {
+		adapter.userInfo[user.Id] = user
+	}
 }
 
 // Stop stops the adapter.
@@ -171,9 +201,16 @@ func (adapter *SlackAdapter) initChannelMap() {
 func (adapter *SlackAdapter) Stop() {
 }
 
-func (adapter *SlackAdapter) getUser(userID string) (*slack.User, error) {
+// ID returns a unique ID for this adapter. At the moment this just returns
+// the slack instance token but could be modified to return a uuid using a
+// package such as https://godoc.org/code.google.com/p/go-uuid/uuid
+func (adapter *SlackAdapter) ID() string {
+	return adapter.token
+}
+
+func (adapter *SlackAdapter) getUserFromSlack(userID string) (*slack.User, error) {
 	// try to get the stored user info
-	userStr, exists := adapter.getStoreKey(userID)
+	user, exists := adapter.userInfo[userID]
 	// if it hasn't been stored then perform a slack API call to get it and
 	// store it
 	if !exists {
@@ -183,26 +220,15 @@ func (adapter *SlackAdapter) getUser(userID string) (*slack.User, error) {
 			return nil, err
 		}
 		// try to encode it as a json string for storage
-		var userArr []byte
-		if userArr, err = json.Marshal(user); err == nil {
-			adapter.setStoreKey(userID, string(userArr))
-		}
+		adapter.userInfo[user.Id] = *user
 		return user, nil
 	}
-	var user slack.User
-	// convert the json string to the user object
-	err := json.Unmarshal([]byte(userStr), &user)
-	if err != nil {
-		log.Println(err.Error())
-		return nil, err
-	}
-	return &user, nil
 
-	// TODO handle an error on the unmarshalling of the stored json object?
+	return &user, nil
 }
 
 func (adapter *SlackAdapter) handleMessage(event *slack.MessageEvent) {
-	user, _ := adapter.getUser(event.UserId)
+	user, _ := adapter.getUserFromSlack(event.UserId)
 	channel, exists := adapter.channelInfo[event.ChannelId]
 	if !exists {
 		log.Printf("Unrecognized channel with ID %s", event.Id)
@@ -219,24 +245,37 @@ func (adapter *SlackAdapter) handleMessage(event *slack.MessageEvent) {
 		}
 		messageText := adapter.unescapeMessage(event.Text)
 		msg := slackMessage{
-			user:            user,
+			adapter: adapter,
+			user: slackUser{
+				id:           user.Id,
+				name:         user.Name,
+				emailAddress: user.Profile.Email,
+			},
 			text:            messageText,
 			channelID:       channel.ID,
 			channelName:     channel.Name,
 			isDirectMessage: channel.IsDM,
+			timestamp:       event.Timestamp,
 		}
 		adapter.robot.Receive(&msg)
-		log.Println(msg.Text())
 	}
+}
+
+const archiveURLFormat = "http://%s.slack.com/archives/%s/p%s"
+
+func (adapter *SlackAdapter) getArchiveLink(channelName, timestamp string) string {
+	return fmt.Sprintf(archiveURLFormat, adapter.domain, channelName, strings.Replace(timestamp, ".", "", 1))
 }
 
 // Replace all instances of the bot's encoded name with it's actual name.
 //
-// TODO might want to update this to replace all matches of <@USER_ID> with
-// the user's name.
+// TODO might want to handle unescaping emails and urls here
 func (adapter *SlackAdapter) unescapeMessage(msg string) string {
-	userID := adapter.instance.GetInfo().User.Id
-	return strings.Replace(msg, getEncodedUserID(userID), adapter.robot.Name(), -1)
+	userID := getEncodedUserID(adapter.instance.GetInfo().User.Id)
+	if strings.HasPrefix(msg, userID) {
+		return strings.Replace(msg, userID, adapter.robot.Name(), 1)
+	}
+	return msg
 }
 
 // Returns the encoded string version of a user's slack ID.
@@ -265,8 +304,27 @@ func (adapter *SlackAdapter) monitorEvents() {
 			go adapter.leftChannel(msg.Data.(*slack.GroupLeftEvent).ChannelId)
 		case *slack.IMCloseEvent:
 			go adapter.leftIM(msg.Data.(*slack.IMCloseEvent))
+		case *slack.TeamDomainChangeEvent:
+			go adapter.domainChanged(msg.Data.(*slack.TeamDomainChangeEvent))
+		case *slack.UserChangeEvent:
+			go adapter.userChanged(msg.Data.(*slack.UserChangeEvent).User)
+		case *slack.TeamJoinEvent:
+			// Need to dereference the user object due to inconsistencies in
+			// the go slack api.
+			go adapter.userChanged(*(msg.Data.(*slack.TeamJoinEvent).User))
 		}
 	}
+}
+
+func (adapter *SlackAdapter) userChanged(user slack.User) {
+	if user.IsBot {
+		return
+	}
+	adapter.userInfo[user.Id] = user
+}
+
+func (adapter *SlackAdapter) domainChanged(event *slack.TeamDomainChangeEvent) {
+	adapter.domain = event.Domain
 }
 
 func (adapter *SlackAdapter) joinedChannel(channel slack.Channel, isChannel bool) {
@@ -325,43 +383,23 @@ func (adapter *SlackAdapter) getDirectMessageID(userID string) (string, error) {
 	return channel.ID, nil
 }
 
-// getStoreKey is a helper method to access the robot's store.
-func (adapter *SlackAdapter) getStoreKey(key string) (string, bool) {
-	return adapter.robot.Store().Get(userInfoPrefix + key)
-}
-
-// setStoreKey is a helper method to access the robot's store.
-func (adapter *SlackAdapter) setStoreKey(key, val string) {
-	adapter.robot.Store().Set(userInfoPrefix+key, val)
-}
-
 // slackMessage is an internal struct implementing victor's message interface.
 type slackMessage struct {
-	user            *slack.User
+	adapter         *SlackAdapter
+	user            slackUser
 	text            string
 	channelID       string
 	channelName     string
 	isDirectMessage bool
+	timestamp       string
 }
 
 func (m *slackMessage) IsDirectMessage() bool {
 	return m.isDirectMessage
 }
 
-func (m *slackMessage) User() *slack.User {
-	return m.user
-}
-
-func (m *slackMessage) UserID() string {
-	return m.user.Id
-}
-
-func (m *slackMessage) UserName() string {
-	return m.user.Name
-}
-
-func (m *slackMessage) EmailAddress() string {
-	return m.user.Profile.Email
+func (m *slackMessage) User() chat.User {
+	return &m.user
 }
 
 func (m *slackMessage) ChannelID() string {
@@ -376,6 +414,37 @@ func (m *slackMessage) Text() string {
 	return m.text
 }
 
-func (m *slackMessage) SetText(newText string) {
-	m.text = newText
+func (m *slackMessage) ArchiveLink() string {
+	return m.adapter.getArchiveLink(m.ChannelName(), m.timestamp)
+}
+
+// Timestamp returns the message's unix timestamp as recieved from the slack
+// realtime api. This does not guarentee uniqueness and it is very possible
+// that multiple messages will have the same output from this method. It should
+// be accurate enough to use for rate limiting commands.
+func (m *slackMessage) Timestamp() string {
+	return strings.SplitN(m.timestamp, ".", 2)[0]
+}
+
+type slackUser struct {
+	id           string
+	name         string
+	emailAddress string
+	isBot        bool
+}
+
+func (u *slackUser) ID() string {
+	return u.id
+}
+
+func (u *slackUser) Name() string {
+	return u.name
+}
+
+func (u *slackUser) EmailAddress() string {
+	return u.emailAddress
+}
+
+func (u *slackUser) IsBot() bool {
+	return u.isBot
 }

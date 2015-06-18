@@ -11,10 +11,10 @@ import (
 )
 
 // Printf style format for a bot's name regular expression
-const botNameRegexFormat = "(?i)^(?:@)?%s\\s*[:,]?\\s*\\b"
+const botNameRegexFormat = "(?i)^(?:@)?%s\\s*[:,]?\\s*"
 
 // Pre-compiled regular expression to match a word that starts a string
-var wordRegex = regexp.MustCompile("^\\S+")
+var wordRegex = regexp.MustCompile("^(\\S+)")
 
 // HandlerPair provides an interface for a handler as well as the regular
 // expression which a message should match in order to pass control onto the
