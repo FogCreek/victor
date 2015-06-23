@@ -74,7 +74,7 @@ func (d *HandlerDoc) Usage() []string {
 var defaultHelpHandlerDoc = HandlerDoc{
 	CmdName:        "help",
 	CmdDescription: "View list of commands and their usage.",
-	CmdUsage:       []string{"", "[command name]"},
+	CmdUsage:       []string{"", "`command name`"},
 }
 
 // HandlerRegExpPair provides an interface for a handler as well as the regular
