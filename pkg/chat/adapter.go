@@ -26,7 +26,7 @@ func Load(name string) (InitFunc, error) {
 type InitFunc func(Robot) Adapter
 
 type Adapter interface {
-	Run()
+	Run() error
 	Send(string, string)
 	SendDirectMessage(string, string)
 	Stop()

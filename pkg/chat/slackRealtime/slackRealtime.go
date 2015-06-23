@@ -145,7 +145,7 @@ func normalizeUserID(userID string) string {
 // Run starts the adapter and begins to listen for new messages to send/receive.
 // At the moment this will crash the program and print the error messages to a
 // log if the connection fails.
-func (adapter *SlackAdapter) Run() {
+func (adapter *SlackAdapter) Run() error {
 	adapter.instance = slack.New(adapter.token)
 	adapter.instance.SetDebug(false)
 	// TODO need to look up what these values actually mean...
@@ -153,14 +153,14 @@ func (adapter *SlackAdapter) Run() {
 	adapter.wsAPI, err = adapter.instance.StartRTM("", "http://example.com")
 	// TODO remove fatal crash or recover from it elsewhere
 	if err != nil {
-		log.Println(err.Error())
-		panic("Fatal error.")
+		return err
 	}
 	adapter.initAdapterInfo()
 	// sets up the monitoring code for sending/receiving messages from slack
 	go adapter.wsAPI.HandleIncomingEvents(adapter.chReceiver)
 	go adapter.wsAPI.Keepalive(20 * time.Second)
-	adapter.monitorEvents()
+	go adapter.monitorEvents()
+	return nil
 }
 
 func (adapter *SlackAdapter) initAdapterInfo() {

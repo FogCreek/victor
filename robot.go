@@ -23,7 +23,7 @@ import (
 
 // Robot provides an interface for a victor chat robot.
 type Robot interface {
-	Run()
+	Run() error
 	Stop()
 	Name() string
 	HandleCommand(string, HandlerFunc)
@@ -119,8 +119,11 @@ func (r *robot) Receive(m chat.Message) {
 }
 
 // Run starts the robot.
-func (r *robot) Run() {
-	go r.chat.Run()
+func (r *robot) Run() error {
+	err := r.chat.Run()
+	if err != nil {
+		return err
+	}
 	go func() {
 		for {
 			select {
@@ -134,6 +137,7 @@ func (r *robot) Run() {
 			}
 		}
 	}()
+	return nil
 }
 
 // Stop shuts down the bot
