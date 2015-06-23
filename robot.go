@@ -26,9 +26,11 @@ type Robot interface {
 	Run() error
 	Stop()
 	Name() string
-	HandleCommand(string, HandlerFunc)
+	HandleCommand(HandlerDocPair)
 	SetDefaultHandler(HandlerFunc)
 	HandlePattern(string, HandlerFunc)
+	EnableHelpCommand()
+	Commands() map[string]HandlerDocPair
 	Receive(chat.Message)
 	Chat() chat.Adapter
 	Store() store.Adapter

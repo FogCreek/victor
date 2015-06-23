@@ -1,9 +1,11 @@
 package victor
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/brettbuddin/victor/pkg/chat"
@@ -16,10 +18,69 @@ const botNameRegexFormat = "(?i)^(?:@)?%s\\s*[:,]?\\s*"
 // Pre-compiled regular expression to match a word that starts a string
 var wordRegex = regexp.MustCompile("^(\\S+)")
 
-// HandlerPair provides an interface for a handler as well as the regular
+const helpCommand = "help"
+
+// HandlerDocPair provides a common interface for command handlers to be added
+// to a victor Robot along with their name, description, and usage. This allows
+// for a "help" handler to be easily written.
+type HandlerDocPair interface {
+	Handler() HandlerFunc
+	Name() string
+	Description() string
+	Usage() []string
+	IsHidden() bool
+}
+
+// HandlerDoc provides a base implementation of the HandlerDocPair interface.
+type HandlerDoc struct {
+	CmdHandler     HandlerFunc
+	CmdName        string
+	CmdDescription string
+	CmdUsage       []string
+	CmdIsHidden    bool
+}
+
+// IsHidden returns true if this command should be hidden from the help list of
+// commands. It will still be "visible" if accessed with help by name.
+func (d *HandlerDoc) IsHidden() bool {
+	return d.CmdIsHidden
+}
+
+// Handler returns the HandlerFunc.
+func (d *HandlerDoc) Handler() HandlerFunc {
+	return d.CmdHandler
+}
+
+// Name returns the handler's set command name. This is not guarenteed to be
+// normalized (all lower case).
+func (d *HandlerDoc) Name() string {
+	return d.CmdName
+}
+
+// Description returns the command's set description.
+func (d *HandlerDoc) Description() string {
+	return d.CmdDescription
+}
+
+// Usage returns an array of acceptable usages for this command.
+// The usages should not have the command's name in them in order to work
+// with the default help handler.
+func (d *HandlerDoc) Usage() []string {
+	return d.CmdUsage
+}
+
+// Set up base default help handler. Before use a copy msut be made and the
+// CmdHandler property must be set.
+var defaultHelpHandlerDoc = HandlerDoc{
+	CmdName:        "help",
+	CmdDescription: "View list of commands and their usage.",
+	CmdUsage:       []string{"", "[command name]"},
+}
+
+// HandlerRegExpPair provides an interface for a handler as well as the regular
 // expression which a message should match in order to pass control onto the
 // handler
-type HandlerPair interface {
+type HandlerRegExpPair interface {
 	Exp() *regexp.Regexp
 	Handler() HandlerFunc
 }
@@ -39,10 +100,10 @@ func (pair *handlerPair) Handler() HandlerFunc {
 
 type dispatch struct {
 	robot          Robot
-	handlers       []HandlerPair
 	defaultHandler HandlerFunc
-	commands       map[string]HandlerFunc
-	patterns       []HandlerPair
+	commands       map[string]HandlerDocPair
+	commandNames   []string
+	patterns       []HandlerRegExpPair
 	botNameRegex   *regexp.Regexp
 }
 
@@ -50,22 +111,50 @@ func newDispatch(bot Robot) *dispatch {
 	return &dispatch{
 		robot:          bot,
 		defaultHandler: nil,
-		commands:       make(map[string]HandlerFunc),
-		patterns:       make([]HandlerPair, 0, 10),
+		commands:       make(map[string]HandlerDocPair),
+		commandNames:   make([]string, 0, 10),
+		patterns:       make([]HandlerRegExpPair, 0, 10),
 		botNameRegex:   regexp.MustCompile(fmt.Sprintf(botNameRegexFormat, bot.Name())),
 	}
+}
+
+func (d *dispatch) Commands() map[string]HandlerDocPair {
+	cmdCopy := make(map[string]HandlerDocPair)
+	for key, value := range d.commands {
+		cmdCopy[key] = value
+	}
+	return cmdCopy
+}
+
+func (d *dispatch) EnableHelpCommand() {
+	if _, exists := d.commands[helpCommand]; exists {
+		log.Println("Enabling built in help command and overriding set help command.")
+	}
+	// make a copy of it and use a closure to provide access to the current
+	// dispatch
+	helpHandler := defaultHelpHandlerDoc
+	helpHandler.CmdHandler = func(s State) {
+		defaultHelpHandler(s, d)
+	}
+	d.HandleCommand(&helpHandler)
 }
 
 // HandleCommand adds a given string/handler pair as a new command for the bot.
 // This will call the handler function if a string insensitive match succeeds
 // on the command name of a message that is considered a potential command
 // (either sent @ the bot's name or in a direct message).
-func (d *dispatch) HandleCommand(name string, handler HandlerFunc) {
-	lowerName := strings.ToLower(name)
+func (d *dispatch) HandleCommand(cmd HandlerDocPair) {
+	lowerName := strings.ToLower(cmd.Name())
+	newCommand := true
 	if _, exists := d.commands[lowerName]; exists {
 		log.Printf("\"%s\" has been set more than once.", lowerName)
+		newCommand = false
 	}
-	d.commands[lowerName] = handler
+	d.commands[lowerName] = cmd
+	if newCommand {
+		d.commandNames = append(d.commandNames, cmd.Name())
+		sort.Strings(d.commandNames)
+	}
 }
 
 // SetDefaultHandler sets a function as the default handler which is called
@@ -156,7 +245,7 @@ func (d *dispatch) matchCommands(m chat.Message, messageText string) bool {
 	if err != nil {
 		log.Println(err.Error())
 	}
-	command.Handle(&state{
+	command.Handler().Handle(&state{
 		robot:   d.robot,
 		message: m,
 		fields:  fields,
@@ -178,4 +267,63 @@ func (d *dispatch) matchPatterns(m chat.Message) {
 			return
 		}
 	}
+}
+
+func defaultHelpHandler(s State, d *dispatch) {
+	if len(s.Fields()) == 0 {
+		showAllCommands(s, d)
+	} else {
+		showCommandHelp(s, d)
+	}
+}
+
+func showAllCommands(s State, d *dispatch) {
+	if len(d.commandNames) == 0 {
+		s.Chat().Send(s.Message().ChannelID(), "No commands have been set!")
+		return
+	}
+	var buf bytes.Buffer
+	buf.WriteString("Available commands:\n")
+	buf.WriteString(">>>")
+	for _, name := range d.commandNames {
+		docPair, ok := d.commands[name]
+		if !ok || docPair.IsHidden() {
+			continue
+		}
+		// buf.WriteString("*•\t")
+		buf.WriteString("*")
+		buf.WriteString(docPair.Name())
+		buf.WriteString("* - _")
+		buf.WriteString(docPair.Description())
+		buf.WriteString("_\n")
+	}
+	buf.WriteString("\nFor help with a command, type `help [command name]`.")
+	s.Chat().Send(s.Message().ChannelID(), buf.String())
+}
+
+func showCommandHelp(s State, d *dispatch) {
+	if len(s.Fields()) == 0 {
+		return
+	}
+	cmdName := strings.ToLower(s.Fields()[0])
+	docPair, exists := d.commands[cmdName]
+	if !exists {
+		textFmt := "Unrecognized command _%s_.  Type *`help`* to view a list of all available commands."
+		s.Chat().Send(s.Message().ChannelID(), fmt.Sprintf(textFmt, cmdName))
+		return
+	}
+	var buf bytes.Buffer
+	buf.WriteString("*")
+	buf.WriteString(docPair.Name())
+	buf.WriteString("* - _")
+	buf.WriteString(docPair.Description())
+	buf.WriteString("_\n\n")
+	buf.WriteString(">>>")
+	for _, use := range docPair.Usage() {
+		buf.WriteString(docPair.Name())
+		buf.WriteString(" ")
+		buf.WriteString(use)
+		buf.WriteString("\n")
+	}
+	s.Chat().Send(s.Message().ChannelID(), buf.String())
 }
