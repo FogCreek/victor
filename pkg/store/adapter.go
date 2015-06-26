@@ -1,10 +1,6 @@
 package store
 
-import (
-	"fmt"
-
-	"github.com/gorilla/mux"
-)
+import "fmt"
 
 var adapters = map[string]InitFunc{}
 
@@ -26,7 +22,6 @@ type InitFunc func(Robot) Adapter
 
 type Robot interface {
 	Name() string
-	HTTP() *mux.Router
 	StoreConfig() (interface{}, bool)
 }
 

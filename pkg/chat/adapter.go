@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/brettbuddin/victor/pkg/store"
-	"github.com/gorilla/mux"
 )
 
 var adapters = map[string]InitFunc{}
@@ -39,7 +38,6 @@ type Adapter interface {
 
 type Robot interface {
 	Name() string
-	HTTP() *mux.Router
 	Store() store.Adapter
 	Chat() Adapter
 	Receive(Message)

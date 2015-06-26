@@ -13,12 +13,10 @@ import (
 	// _ "github.com/brettbuddin/victor/pkg/chat/shell"
 	// _ "github.com/brettbuddin/victor/pkg/chat/slack"
 	_ "github.com/brettbuddin/victor/pkg/chat/slackRealtime"
-	"github.com/brettbuddin/victor/pkg/httpserver"
 	"github.com/brettbuddin/victor/pkg/store"
 	// Blank import used init adapters which registers them with victor
 	_ "github.com/brettbuddin/victor/pkg/store/boltstore"
 	_ "github.com/brettbuddin/victor/pkg/store/memory"
-	"github.com/gorilla/mux"
 )
 
 // Robot provides an interface for a victor chat robot.
@@ -34,7 +32,6 @@ type Robot interface {
 	Receive(chat.Message)
 	Chat() chat.Adapter
 	Store() store.Adapter
-	HTTP() *mux.Router
 	AdapterConfig() (interface{}, bool)
 	StoreConfig() (interface{}, bool)
 }
@@ -53,14 +50,11 @@ type Config struct {
 
 type robot struct {
 	*dispatch
-	name       string
-	http       *httpserver.Server
-	httpAddr   string
-	httpRouter *mux.Router
-	store      store.Adapter
-	chat       chat.Adapter
-	incoming   chan chat.Message
-	stop       chan struct{}
+	name     string
+	store    store.Adapter
+	chat     chat.Adapter
+	incoming chan chat.Message
+	stop     chan struct{}
 	adapterConfig,
 	storeConfig interface{}
 }
@@ -96,14 +90,8 @@ func New(config Config) *robot {
 		botName = "victor"
 	}
 
-	httpAddr := config.HTTPAddr
-	if httpAddr == "" {
-		httpAddr = ":9000"
-	}
-
 	bot := &robot{
 		name:     botName,
-		httpAddr: httpAddr,
 		incoming: make(chan chat.Message),
 		stop:     make(chan struct{}),
 	}
@@ -146,9 +134,6 @@ func (r *robot) Run() error {
 func (r *robot) Stop() {
 	r.chat.Stop()
 	close(r.stop)
-	if r.http != nil {
-		r.http.Stop()
-	}
 }
 
 // Name returns the name of the bot
@@ -159,22 +144,6 @@ func (r *robot) Name() string {
 // Store returns the data store adapter
 func (r *robot) Store() store.Adapter {
 	return r.store
-}
-
-// HTTP returns the HTTP router.
-// The HTTP router is disabled (uninitialized) by default but is created upon
-// the first call to HTTP().
-//
-// TODO consider having one explicitly enable the storage access endpoints
-// (defined in http_handlers.go) since, as far as I can tell, a chat/storage
-// adapter might want to use the included http router without enabling access
-// to the entire store via those endpoints. At the moment these are coupled
-// together.
-func (r *robot) HTTP() *mux.Router {
-	if r.httpRouter == nil {
-		r.initHTTP()
-	}
-	return r.httpRouter
 }
 
 // Chat returns the chat adapter
@@ -188,14 +157,6 @@ func (r *robot) AdapterConfig() (interface{}, bool) {
 
 func (r *robot) StoreConfig() (interface{}, bool) {
 	return r.storeConfig, r.storeConfig != nil
-}
-
-func (r *robot) initHTTP() {
-	log.Println("Initializing victor's HTTP server.")
-	r.http = httpserver.New()
-	r.httpRouter = handlers(r)
-	r.http.Handle("/", r.httpRouter)
-	r.http.ListenAndServe(r.httpAddr)
 }
 
 // OnlyAllow provides a way of permitting specific users
