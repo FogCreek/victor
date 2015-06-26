@@ -247,18 +247,24 @@ func (adapter *SlackAdapter) handleMessage(event *slack.MessageEvent) {
 			return
 		}
 		messageText := adapter.unescapeMessage(event.Text)
-		msg := slackMessage{
-			adapter: adapter,
-			user: slackUser{
+		var archiveLink string
+		if !channel.IsDM {
+			archiveLink = adapter.getArchiveLink(channel.Name, event.Timestamp)
+		} else {
+			archiveLink = "No archive link for Direct Messages"
+		}
+		msg := chat.BaseMessage{
+			MsgUser: &slackUser{
 				id:           user.Id,
 				name:         user.Name,
 				emailAddress: user.Profile.Email,
 			},
-			text:            messageText,
-			channelID:       channel.ID,
-			channelName:     channel.Name,
-			isDirectMessage: channel.IsDM,
-			timestamp:       event.Timestamp,
+			MsgText:        messageText,
+			MsgChannelID:   channel.ID,
+			MsgChannelName: channel.Name,
+			MsgIsDirect:    channel.IsDM,
+			MsgTimestamp:   strings.SplitN(event.Timestamp, ".", 2)[0],
+			MsgArchiveLink: archiveLink,
 		}
 		adapter.robot.Receive(&msg)
 	}
@@ -384,49 +390,6 @@ func (adapter *SlackAdapter) getDirectMessageID(userID string) (string, error) {
 		return channelID, err
 	}
 	return channel.ID, nil
-}
-
-// slackMessage is an internal struct implementing victor's message interface.
-type slackMessage struct {
-	adapter         *SlackAdapter
-	user            slackUser
-	text            string
-	channelID       string
-	channelName     string
-	isDirectMessage bool
-	timestamp       string
-}
-
-func (m *slackMessage) IsDirectMessage() bool {
-	return m.isDirectMessage
-}
-
-func (m *slackMessage) User() chat.User {
-	return &m.user
-}
-
-func (m *slackMessage) ChannelID() string {
-	return m.channelID
-}
-
-func (m *slackMessage) ChannelName() string {
-	return m.channelName
-}
-
-func (m *slackMessage) Text() string {
-	return m.text
-}
-
-func (m *slackMessage) ArchiveLink() string {
-	return m.adapter.getArchiveLink(m.ChannelName(), m.timestamp)
-}
-
-// Timestamp returns the message's unix timestamp as recieved from the slack
-// realtime api. This does not guarentee uniqueness and it is very possible
-// that multiple messages will have the same output from this method. It should
-// be accurate enough to use for rate limiting commands.
-func (m *slackMessage) Timestamp() string {
-	return strings.SplitN(m.timestamp, ".", 2)[0]
 }
 
 type slackUser struct {

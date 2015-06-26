@@ -18,7 +18,7 @@ const botNameRegexFormat = "(?i)^(?:@)?%s\\s*[:,]?\\s*"
 // Pre-compiled regular expression to match a word that starts a string
 var wordRegex = regexp.MustCompile("^(\\S+)")
 
-const helpCommand = "help"
+const helpCommandName = "help"
 
 // HandlerDocPair provides a common interface for command handlers to be added
 // to a victor Robot along with their name, description, and usage. This allows
@@ -72,7 +72,7 @@ func (d *HandlerDoc) Usage() []string {
 // Set up base default help handler. Before use a copy msut be made and the
 // CmdHandler property must be set.
 var defaultHelpHandlerDoc = HandlerDoc{
-	CmdName:        "help",
+	CmdName:        helpCommandName,
 	CmdDescription: "View list of commands and their usage.",
 	CmdUsage:       []string{"", "`command name`"},
 }
@@ -127,7 +127,7 @@ func (d *dispatch) Commands() map[string]HandlerDocPair {
 }
 
 func (d *dispatch) EnableHelpCommand() {
-	if _, exists := d.commands[helpCommand]; exists {
+	if _, exists := d.commands[helpCommandName]; exists {
 		log.Println("Enabling built in help command and overriding set help command.")
 	}
 	// make a copy of it and use a closure to provide access to the current

@@ -2,98 +2,136 @@ package victor
 
 import (
 	"testing"
+
+	"github.com/brettbuddin/victor/pkg/chat"
+	_ "github.com/brettbuddin/victor/pkg/chat/mockAdapter"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func TestRouting(t *testing.T) {
-	robot := &robot{name: "ralph"}
-	robot.dispatch = newDispatch(robot)
+const botName = "testBot"
 
-	called := 0
-
-	robot.HandleCommandFunc("howdy", func(s State) {
-		called++
+func getMockBot() *robot {
+	return New(Config{
+		Name:        botName,
+		ChatAdapter: "mockAdapter",
 	})
-	robot.HandleCommandFunc("tell (him|me)", func(s State) {
-		called++
-	})
-	robot.HandleFunc("alot", func(s State) {
-		called++
-	})
+}
 
-	// Should trigger
-	robot.ProcessMessage(&msg{text: "ralph howdy"})
-	robot.ProcessMessage(&msg{text: "ralph tell him"})
-	robot.ProcessMessage(&msg{text: "ralph tell me"})
-	robot.ProcessMessage(&msg{text: "/tell me"})
-	robot.ProcessMessage(&msg{text: "I heard alot of them."})
+func TestNewDispatch(t *testing.T) {
+	bot := getMockBot()
+	assert.Empty(t, bot.dispatch.commands, "A new bot should have no commands.")
+	assert.Nil(t, bot.dispatch.defaultHandler, "Default handler should be nil.")
+	assert.Empty(t, bot.commandNames, "No command names should be stored on creation.")
+	assert.Empty(t, bot.patterns, "Patterns array should be empty on creation.")
+}
 
-	if called != 5 {
-		t.Errorf("One or more register actions weren't triggered")
+func TestEnableHelp(t *testing.T) {
+	bot := getMockBot()
+	bot.dispatch.EnableHelpCommand()
+	assert.Len(t, bot.dispatch.commands, 1, "Help handler should have been added once.")
+	assert.Len(t, bot.dispatch.commandNames, 1, "Help handler should be in command names.")
+	assert.Equal(t, helpCommandName, bot.dispatch.commandNames[0], "Help handler should be in command names.")
+	for key := range bot.dispatch.commands {
+		assert.Equal(t, helpCommandName, key, "Help handler command should be \"help\".")
 	}
 }
 
-func TestParams(t *testing.T) {
-	robot := &robot{name: "ralph"}
-	robot.dispatch = newDispatch(robot)
+func TestCommandsGetter(t *testing.T) {
+	bot := getMockBot()
+	bot.dispatch.HandleCommand(&HandlerDoc{CmdName: "test"})
+	mapCopy := bot.dispatch.Commands()
+	assert.Equal(t, mapCopy, bot.dispatch.commands, "Map copy should be equal")
+	mapCopy["mock"] = nil
+	assert.NotEqual(t, mapCopy, bot.dispatch.commands, "Map copy should be a copy of original commands map")
+}
 
-	called := 0
-
-	robot.HandleCommandFunc("yodel (it)", func(s State) {
-		called++
-		params := s.Params()
-		if len(params) == 0 || params[0] != "it" {
-			t.Errorf("Incorrect message params expected=%v got=%v", []string{"it"}, params)
+func TestHandleCommand(t *testing.T) {
+	bot := getMockBot()
+	var handlerFunc HandlerFunc
+	count := 0
+	handlerFunc = func(s State) {
+		if count == 0 {
+			assert.Fail(t, "Added handler should not have been called upon creation.")
 		}
+		// should make count == 2 when called for the first time
+		count++
+	}
+	bot.dispatch.HandleCommand(&HandlerDoc{
+		CmdHandler:     handlerFunc,
+		CmdName:        "name",
+		CmdUsage:       []string{"", "1", "2"},
+		CmdDescription: "description",
+		CmdIsHidden:    true,
+	})
+	// should make count == 1 so handlerFunc doesn't fail
+	count++
+	assert.Len(t, bot.dispatch.commands, 1, "Added command should be present in map.")
+	assert.Len(t, bot.dispatch.commandNames, 1, "Added command should be in commandNames list.")
+	// testify.assert.Contains doesn't support map keys right now https://github.com/stretchr/testify/pull/165
+	actualHandlerFunc, exists := bot.dispatch.commands["name"]
+	assert.True(t, exists, "Bot should contain new handler in commands map.")
+	assert.Contains(t, bot.dispatch.commandNames, "name", "Bot should contain new handler in commandNames")
+	actualHandlerFunc.Handler().Handle(nil)
+	assert.Equal(t, 2, count, "Handler function should have increased count on call to Handle")
+}
+
+func TestProcessMessageCommand(t *testing.T) {
+	bot := getMockBot()
+	count0 := 0
+	count1 := 0
+	bot.dispatch.HandleCommand(&HandlerDoc{
+		CmdHandler: func(s State) { count0++ },
+		CmdName:    "name0",
+	})
+	bot.dispatch.HandleCommand(&HandlerDoc{
+		CmdHandler: func(s State) { count1++ },
+		CmdName:    "name1",
 	})
 
-	robot.ProcessMessage(&msg{text: "ralph yodel it"})
-
-	if called != 1 {
-		t.Error("Registered action was never triggered")
+	check := func(count0Exp, count1Exp int) {
+		assert.Equal(t, count0Exp, count0, "Count mismatch - handlers incorrectly called.")
+		assert.Equal(t, count1Exp, count1, "Count mismatch - handlers incorrectly called.")
 	}
+	// by default will not be in a direct message unless specified otherwise
+	// should not call a handler
+	bot.dispatch.ProcessMessage(&chat.BaseMessage{MsgText: "name0"})
+	check(0, 0)
+	// should call "name0" handler
+	bot.dispatch.ProcessMessage(&chat.BaseMessage{MsgText: "name0", MsgIsDirect: true})
+	check(1, 0)
+	// should call "name0" handler
+	bot.dispatch.ProcessMessage(&chat.BaseMessage{MsgText: botName + " name0"})
+	check(2, 0)
+	// should call "name1" handler
+	bot.dispatch.ProcessMessage(&chat.BaseMessage{MsgText: botName + "name1 param"})
+	check(2, 1)
 }
 
-func TestNonFiringRoutes(t *testing.T) {
-	robot := &robot{name: "ralph"}
-	robot.dispatch = newDispatch(robot)
-
-	called := 0
-
-	robot.HandleCommandFunc("howdy", func(s State) {
-		called++
+func TestFields(t *testing.T) {
+	var expectedFields []string
+	msg := &chat.BaseMessage{MsgIsDirect: true}
+	bot := getMockBot()
+	handler := func(s State) {
+		assert.Equal(t, expectedFields, s.Fields(), "Fields mismatch.")
+	}
+	bot.dispatch.HandleCommand(&HandlerDoc{
+		CmdHandler: handler,
+		CmdName:    "test",
 	})
-
-	robot.ProcessMessage(&msg{text: "Tell ralph howdy."})
-
-	if called > 0 {
-		t.Error("Registered action was triggered when it shouldn't have been")
-	}
+	expectedFields = []string{}
+	msg.MsgText = "test"
+	bot.ProcessMessage(msg)
+	expectedFields = []string{"test"}
+	msg.MsgText = "test \t\n test"
+	bot.ProcessMessage(msg)
+	expectedFields = []string{"this", "is", "a", "test"}
+	msg.MsgText = "test this is a test"
+	bot.ProcessMessage(msg)
+	expectedFields = []string{"this", " is a test"}
+	msg.MsgText = "test this \" is a test\""
+	bot.ProcessMessage(msg)
 }
 
-type msg struct {
-	userID      string
-	userName    string
-	channelID   string
-	channelName string
-	text        string
-}
-
-func (m *msg) UserID() string {
-	return m.userID
-}
-
-func (m *msg) UserName() string {
-	return m.userName
-}
-
-func (m *msg) ChannelID() string {
-	return m.channelID
-}
-
-func (m *msg) ChannelName() string {
-	return m.channelName
-}
-
-func (m *msg) Text() string {
-	return m.text
-}
+// TODO test default handler
+// TODO test patterns
