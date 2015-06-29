@@ -11,6 +11,8 @@ import (
 
 const botName = "testBot"
 
+// Returns a new *robot using the "mockAdapter" chat adapter and the bot name
+// set in the "botName" constant.
 func getMockBot() *robot {
 	return New(Config{
 		Name:        botName,
@@ -18,12 +20,43 @@ func getMockBot() *robot {
 	})
 }
 
-// helper function creator to create a handler that increases
-// a local int by one every time it is called.
-func getCountIntHandler(i *int) func(s State) {
+// HandlerCount provides an easy way to construct a handler and assert how many
+// times it has been called by the message router.
+type HandlerCount struct {
+	t        *testing.T
+	timesRun int
+}
+
+// TimesRun returns the number of times that the function returned by this
+// HandlerCount's Func() method has been called.
+func (h *HandlerCount) TimesRun() int {
+	return h.timesRun
+}
+
+// Func returns a function of type HandlerFunc which increments an internal
+// counter every time it is called. Multiple calls to Func() will return
+// different function instances but all will increment the same internal count.
+func (h *HandlerCount) Func() HandlerFunc {
 	return func(s State) {
-		*i = *i + 1
+		h.timesRun++
 	}
+}
+
+// HasRun asserts that this HandlerCount instance has been run the expected
+// number of times. This is equivalent to HasRunCustom but with a preset failed
+// message.
+func (h *HandlerCount) HasRun(expectedTimesRun int) {
+	h.HasRunCustom(expectedTimesRun, "Count mismatch - handlers incorrectly called.")
+}
+
+// HasRun asserts that this HandlerCount instance has been run the expected
+// number of times. The "failedMessage" parameter is the message that will be
+// shown if the assertion fails.
+func (h *HandlerCount) HasRunCustom(expectedTimesRun int, failedMessage string) {
+	if expectedTimesRun != h.timesRun {
+		assert.Fail(h.t, failedMessage)
+	}
+	// assert.Equal(h.t, expectedTimesRun, h.timesRun, failedMessage)
 }
 
 func TestNewDispatch(t *testing.T) {
@@ -86,34 +119,33 @@ func TestHandleCommand(t *testing.T) {
 
 func TestProcessMessageCommand(t *testing.T) {
 	bot := getMockBot()
-	count0 := 0
-	count1 := 0
+	name0Handle := HandlerCount{t: t}
+	name1Handle := HandlerCount{t: t}
 	bot.dispatch.HandleCommand(&HandlerDoc{
-		CmdHandler: getCountIntHandler(&count0),
+		CmdHandler: name0Handle.Func(),
 		CmdName:    "name0",
 	})
 	bot.dispatch.HandleCommand(&HandlerDoc{
-		CmdHandler: getCountIntHandler(&count1),
+		CmdHandler: name1Handle.Func(),
 		CmdName:    "name1",
 	})
-
-	check := func(count0Exp, count1Exp int) {
-		assert.Equal(t, count0Exp, count0, "Count mismatch - handlers incorrectly called.")
-		assert.Equal(t, count1Exp, count1, "Count mismatch - handlers incorrectly called.")
-	}
 	// by default will not be in a direct message unless specified otherwise
 	// should not call a handler
 	bot.dispatch.ProcessMessage(&chat.BaseMessage{MsgText: "name0"})
-	check(0, 0)
+	name0Handle.HasRunCustom(0, "Handler should not have been called yet.")
+	name1Handle.HasRunCustom(0, "Handler should not have been called yet.")
 	// should call "name0" handler
 	bot.dispatch.ProcessMessage(&chat.BaseMessage{MsgText: "name0", MsgIsDirect: true})
-	check(1, 0)
+	name0Handle.HasRunCustom(1, "\"name0\" handler should have been called")
+	name1Handle.HasRunCustom(0, "\"name1\" handler should not have been called")
 	// should call "name0" handler
 	bot.dispatch.ProcessMessage(&chat.BaseMessage{MsgText: botName + " name0"})
-	check(2, 0)
+	name0Handle.HasRun(2)
+	name1Handle.HasRun(0)
 	// should call "name1" handler
 	bot.dispatch.ProcessMessage(&chat.BaseMessage{MsgText: botName + "name1 param"})
-	check(2, 1)
+	name0Handle.HasRun(2)
+	name1Handle.HasRun(1)
 }
 
 func TestFields(t *testing.T) {
@@ -143,74 +175,82 @@ func TestFields(t *testing.T) {
 
 func TestDefaultHandler(t *testing.T) {
 	bot := getMockBot()
-	defaultCount := 0
-	otherCount := 0
-	// helper function to check both counts
-	check := func(defaultExp, otherExp int) {
-		assert.Equal(t, defaultExp, defaultCount, "Count mismatch - handlers incorrectly called.")
-		assert.Equal(t, otherExp, otherCount, "Count mismatch - handlers incorrectly called.")
-	}
+	defaultHandle := HandlerCount{t: t}
+	otherHandle := HandlerCount{t: t}
 	bot.dispatch.HandleCommand(&HandlerDoc{
-		CmdHandler: getCountIntHandler(&otherCount),
+		CmdHandler: otherHandle.Func(),
 		CmdName:    "test",
 	})
-	bot.dispatch.SetDefaultHandler(getCountIntHandler(&defaultCount))
+	bot.dispatch.SetDefaultHandler(defaultHandle.Func())
 	msg := &chat.BaseMessage{MsgIsDirect: true}
 	// should call default handler
 	bot.ProcessMessage(msg)
-	check(1, 0)
+	defaultHandle.HasRun(1)
+	otherHandle.HasRun(0)
 	msg.MsgText = "test"
 	// should not call default handler but should call other handler
 	bot.ProcessMessage(msg)
-	check(1, 1)
+	defaultHandle.HasRun(1)
+	otherHandle.HasRun(1)
 	msg.MsgText = "asdf"
 	msg.MsgIsDirect = false
 	// should not call any handlers
 	bot.ProcessMessage(msg)
-	check(1, 1)
+	defaultHandle.HasRun(1)
+	otherHandle.HasRun(1)
 	msg.MsgText = botName + " asdf"
 	// should call default handler even though not direct
 	bot.ProcessMessage(msg)
-	check(2, 1)
+	defaultHandle.HasRun(2)
+	otherHandle.HasRun(1)
 }
 
 func TestPatterns(t *testing.T) {
 	bot := getMockBot()
-	var cmdCount, patternCount, defaultCount int
+	commandHandle := HandlerCount{t: t}
+	patternHandle := HandlerCount{t: t}
+	defaultHandle := HandlerCount{t: t}
 	bot.HandleCommand(&HandlerDoc{
-		CmdHandler: getCountIntHandler(&cmdCount),
+		CmdHandler: commandHandle.Func(),
 		CmdName:    "pattern",
 	})
 	// set up known pattern
 	// case insensitive match for word "pattern" or "patterns"
-	bot.HandlePattern("(?i)\\s*pattern[s]?\\s*", getCountIntHandler(&patternCount))
-	bot.SetDefaultHandler(getCountIntHandler(&defaultCount))
-	// create helper function for count assertions
-	check := func(defaultExp, cmdExp, patternExp int) {
-		assert.Equal(t, defaultExp, defaultCount, "Count mismatch - patterns incorrectly called.")
-		assert.Equal(t, cmdExp, cmdCount, "Count mismatch - patterns incorrectly called.")
-		assert.Equal(t, patternExp, patternCount, "Count mismatch - patterns incorrectly called.")
-	}
-	check(0, 0, 0)
+	bot.HandlePattern("(?i)\\s*pattern[s]?\\s*", patternHandle.Func())
+	bot.SetDefaultHandler(defaultHandle.Func())
+
+	defaultHandle.HasRun(0)
+	commandHandle.HasRun(0)
+	patternHandle.HasRun(0)
 	msg := &chat.BaseMessage{MsgIsDirect: false}
 	msg.MsgText = "pattern"
 	// should fire pattern and not cmd or defualt
 	bot.ProcessMessage(msg)
-	check(0, 0, 1)
+	defaultHandle.HasRun(0)
+	commandHandle.HasRun(0)
+	patternHandle.HasRun(1)
 	msg.MsgIsDirect = true
 	// should fire on cmd and not pattern
 	bot.ProcessMessage(msg)
-	check(0, 1, 1)
+	defaultHandle.HasRun(0)
+	commandHandle.HasRun(1)
+	patternHandle.HasRun(1)
 	msg.MsgText = "patterns"
 	// should fire default handler
 	bot.ProcessMessage(msg)
-	check(1, 1, 1)
+	defaultHandle.HasRun(1)
+	commandHandle.HasRun(1)
+	patternHandle.HasRun(1)
 	msg.MsgIsDirect = false
 	// should fire pattern
 	bot.ProcessMessage(msg)
-	check(1, 1, 2)
+	defaultHandle.HasRun(1)
+	commandHandle.HasRun(1)
+	patternHandle.HasRun(2)
 	msg.MsgText = "test for the_PaTTeRNs_handler"
 	// should still match the pattern
 	bot.ProcessMessage(msg)
-	check(1, 1, 3)
+	defaultHandle.HasRun(1)
+	commandHandle.HasRun(1)
+	patternHandle.HasRun(3)
 }

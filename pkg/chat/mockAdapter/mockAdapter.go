@@ -19,7 +19,6 @@ func init() {
 			id:                 strconv.Itoa(id),
 			Sent:               make([]MockMessagePair, 0, 10),
 			IsPotentialUserRet: true,
-			ChannelNameRet:     "fake_channel",
 			UserRet: &chat.BaseUser{
 				UserName:  "Fake User",
 				UserID:    "UFakeUser",
