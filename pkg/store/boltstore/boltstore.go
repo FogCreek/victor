@@ -5,8 +5,8 @@ import (
 	"log"
 	"os"
 
+	"github.com/FogCreek/victor/pkg/store"
 	"github.com/boltdb/bolt"
-	"github.com/brettbuddin/victor/pkg/store"
 )
 
 var _ = fmt.Println

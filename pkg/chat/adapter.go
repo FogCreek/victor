@@ -3,7 +3,7 @@ package chat
 import (
 	"fmt"
 
-	"github.com/brettbuddin/victor/pkg/store"
+	"github.com/FogCreek/victor/pkg/store"
 )
 
 var adapters = map[string]InitFunc{}

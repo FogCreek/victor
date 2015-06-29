@@ -3,8 +3,8 @@ package victor
 import (
 	"testing"
 
-	"github.com/brettbuddin/victor/pkg/chat"
-	_ "github.com/brettbuddin/victor/pkg/chat/mockAdapter"
+	"github.com/FogCreek/victor/pkg/chat"
+	_ "github.com/FogCreek/victor/pkg/chat/mockAdapter"
 
 	"github.com/stretchr/testify/assert"
 )

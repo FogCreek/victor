@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brettbuddin/victor/pkg/chat"
+	"github.com/FogCreek/victor/pkg/chat"
 	"github.com/nlopes/slack"
 )
 

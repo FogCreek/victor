@@ -3,7 +3,7 @@ package mockAdapter
 import (
 	"strconv"
 
-	"github.com/brettbuddin/victor/pkg/chat"
+	"github.com/FogCreek/victor/pkg/chat"
 )
 
 var nextID = 0

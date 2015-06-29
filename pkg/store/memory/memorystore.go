@@ -3,7 +3,7 @@ package memory
 import (
 	"sync"
 
-	"github.com/brettbuddin/victor/pkg/store"
+	"github.com/FogCreek/victor/pkg/store"
 )
 
 func init() {

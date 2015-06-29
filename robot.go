@@ -6,13 +6,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/brettbuddin/victor/pkg/chat"
+	"github.com/FogCreek/victor/pkg/chat"
 	// Blank import used init adapters which registers them with victor
-	_ "github.com/brettbuddin/victor/pkg/chat/slackRealtime"
-	"github.com/brettbuddin/victor/pkg/store"
+	_ "github.com/FogCreek/victor/pkg/chat/slackRealtime"
+	"github.com/FogCreek/victor/pkg/store"
 	// Blank import used init adapters which registers them with victor
-	_ "github.com/brettbuddin/victor/pkg/store/boltstore"
-	_ "github.com/brettbuddin/victor/pkg/store/memory"
+	_ "github.com/FogCreek/victor/pkg/store/boltstore"
+	_ "github.com/FogCreek/victor/pkg/store/memory"
 )
 
 // Robot provides an interface for a victor chat robot.
@@ -38,8 +38,7 @@ type Robot interface {
 type Config struct {
 	Name,
 	ChatAdapter,
-	StoreAdapter,
-	HTTPAddr string
+	StoreAdapter string
 	AdapterConfig,
 	StoreConfig interface{}
 }
@@ -59,6 +58,7 @@ type robot struct {
 func New(config Config) *robot {
 	chatAdapter := config.ChatAdapter
 	if chatAdapter == "" {
+		log.Println("Shell adapter has been removed.")
 		chatAdapter = "shell"
 	}
 

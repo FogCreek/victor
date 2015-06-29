@@ -1,7 +1,7 @@
 package victor
 
 import (
-	"github.com/brettbuddin/victor/pkg/chat"
+	"github.com/FogCreek/victor/pkg/chat"
 )
 
 // Handler defines an interface for a message handler

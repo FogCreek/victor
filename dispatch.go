@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/brettbuddin/victor/pkg/chat"
+	"github.com/FogCreek/victor/pkg/chat"
 	"github.com/mattn/go-shellwords"
 )
 
