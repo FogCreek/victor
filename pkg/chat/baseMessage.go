@@ -2,7 +2,7 @@ package chat
 
 // BaseMessage provides a bare set/get implementation of the chat.Message
 // interface that can be used by an adapter if it requires no additional logic
-// in it's Messages.
+// in its Messages.
 type BaseMessage struct {
 	MsgUser        User
 	MsgChannelID   string

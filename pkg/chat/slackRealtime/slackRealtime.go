@@ -115,11 +115,11 @@ func (adapter *SlackAdapter) GetUser(userIDStr string) chat.User {
 	if err != nil {
 		return nil
 	}
-	return &slackUser{
-		id:           userObj.Id,
-		name:         userObj.Name,
-		emailAddress: userObj.Profile.Email,
-		isBot:        userObj.IsBot,
+	return &chat.BaseUser{
+		UserID:    userObj.Id,
+		UserName:  userObj.Name,
+		UserEmail: userObj.Profile.Email,
+		UserIsBot: userObj.IsBot,
 	}
 }
 
@@ -254,10 +254,10 @@ func (adapter *SlackAdapter) handleMessage(event *slack.MessageEvent) {
 			archiveLink = "No archive link for Direct Messages"
 		}
 		msg := chat.BaseMessage{
-			MsgUser: &slackUser{
-				id:           user.Id,
-				name:         user.Name,
-				emailAddress: user.Profile.Email,
+			MsgUser: &chat.BaseUser{
+				UserID:    user.Id,
+				UserName:  user.Name,
+				UserEmail: user.Profile.Email,
 			},
 			MsgText:        messageText,
 			MsgChannelID:   channel.ID,
@@ -372,6 +372,8 @@ func (adapter *SlackAdapter) Send(channelID, msg string) {
 	adapter.wsAPI.SendMessage(msgObj)
 }
 
+// SendDirectMessage sends the given message to the given user in a direct
+// (private) message.
 func (adapter *SlackAdapter) SendDirectMessage(userID, msg string) {
 	channelID, err := adapter.getDirectMessageID(userID)
 	if err != nil {
@@ -390,27 +392,4 @@ func (adapter *SlackAdapter) getDirectMessageID(userID string) (string, error) {
 		return channelID, err
 	}
 	return channel.ID, nil
-}
-
-type slackUser struct {
-	id           string
-	name         string
-	emailAddress string
-	isBot        bool
-}
-
-func (u *slackUser) ID() string {
-	return u.id
-}
-
-func (u *slackUser) Name() string {
-	return u.name
-}
-
-func (u *slackUser) EmailAddress() string {
-	return u.emailAddress
-}
-
-func (u *slackUser) IsBot() bool {
-	return u.isBot
 }
