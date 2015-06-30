@@ -3,6 +3,7 @@ package mockAdapter
 import (
 	"strconv"
 
+	"github.com/FogCreek/victor"
 	"github.com/FogCreek/victor/pkg/chat"
 )
 
@@ -19,6 +20,7 @@ func init() {
 			id:                 strconv.Itoa(id),
 			Sent:               make([]MockMessagePair, 0, 10),
 			IsPotentialUserRet: true,
+			NormalizeUserIDRet: "",
 			UserRet: &chat.BaseUser{
 				UserName:  "Fake User",
 				UserID:    "UFakeUser",
@@ -39,6 +41,7 @@ type MockChatAdapter struct {
 	Sent               []MockMessagePair
 	UserRet            chat.User
 	IsPotentialUserRet bool
+	NormalizeUserIDRet string
 }
 
 // Receive mocks a message being received by the chat adapter.
@@ -93,6 +96,13 @@ func (m *MockChatAdapter) IsPotentialUser(string) bool {
 	return m.IsPotentialUserRet
 }
 
+func (m *MockChatAdapter) NormalizeUserID(id string) string {
+	if m.NormalizeUserIDRet == "" {
+		return id
+	}
+	return m.NormalizeUserIDRet
+}
+
 // MockMessagePair is used to store messages that are sent by chat handlers to
 // the mockAdapter instance.
 type MockMessagePair struct {
@@ -124,4 +134,29 @@ func (mp *MockMessagePair) UserID() string {
 // relavent to this message.
 func (mp *MockMessagePair) IsDirect() bool {
 	return mp.isDirect
+}
+
+type MockState struct {
+	MockRobot   victor.Robot
+	MockMessage chat.Message
+	MockFields  []string
+}
+
+// Returns the Robot
+func (s *MockState) Robot() victor.Robot {
+	return s.MockRobot
+}
+
+// Returns the Chat adapter
+func (s *MockState) Chat() chat.Adapter {
+	return s.MockRobot.Chat()
+}
+
+// Returns the Message
+func (s *MockState) Message() chat.Message {
+	return s.MockMessage
+}
+
+func (s *MockState) Fields() []string {
+	return s.MockFields
 }

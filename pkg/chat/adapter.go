@@ -34,6 +34,7 @@ type Adapter interface {
 	ID() string
 	GetUser(string) User
 	IsPotentialUser(string) bool
+	NormalizeUserID(string) string
 }
 
 type Robot interface {

@@ -49,7 +49,7 @@ func (h *HandlerCount) HasRun(expectedTimesRun int) {
 	h.HasRunCustom(expectedTimesRun, "Count mismatch - handlers incorrectly called.")
 }
 
-// HasRun asserts that this HandlerCount instance has been run the expected
+// HasRunCustom asserts that this HandlerCount instance has been run the expected
 // number of times. The "failedMessage" parameter is the message that will be
 // shown if the assertion fails.
 func (h *HandlerCount) HasRunCustom(expectedTimesRun int, failedMessage string) {
