@@ -3,7 +3,6 @@ package mockAdapter
 import (
 	"strconv"
 
-	"github.com/FogCreek/victor"
 	"github.com/FogCreek/victor/pkg/chat"
 )
 
@@ -19,6 +18,8 @@ func init() {
 			robot:              r,
 			id:                 strconv.Itoa(id),
 			Sent:               make([]MockMessagePair, 0, 10),
+			SentPublic:         make([]MockMessagePair, 0, 10),
+			SentDirect:         make([]MockMessagePair, 0, 10),
 			IsPotentialUserRet: true,
 			NormalizeUserIDRet: "",
 			UserRet: &chat.BaseUser{
@@ -36,12 +37,21 @@ func init() {
 // exported array and allows certain function's returned values (GetUser,
 // IsPotentialUser, etc.) to be set.
 type MockChatAdapter struct {
-	id                 string
-	robot              chat.Robot
-	Sent               []MockMessagePair
+	id    string
+	robot chat.Robot
+	Sent,
+	SentPublic,
+	SentDirect []MockMessagePair
 	UserRet            chat.User
 	IsPotentialUserRet bool
 	NormalizeUserIDRet string
+}
+
+// Clear clears the contents of the "Sent" array.
+func (m *MockChatAdapter) Clear() {
+	m.Sent = make([]MockMessagePair, 0, 10)
+	m.SentPublic = make([]MockMessagePair, 0, 10)
+	m.SentDirect = make([]MockMessagePair, 0, 10)
 }
 
 // Receive mocks a message being received by the chat adapter.
@@ -62,12 +72,22 @@ func (m *MockChatAdapter) Send(channelID, text string) {
 		channelID: channelID,
 		isDirect:  false,
 	})
+	m.SentPublic = append(m.SentPublic, MockMessagePair{
+		text:      text,
+		channelID: channelID,
+		isDirect:  false,
+	})
 }
 
 // SendDirectMessage stores the given userID and text to the exported array
 // "Sent" as a MockMessagePair with the "IsDirect" flag set to true.
 func (m *MockChatAdapter) SendDirectMessage(userID, text string) {
 	m.Sent = append(m.Sent, MockMessagePair{
+		text:     text,
+		userID:   userID,
+		isDirect: true,
+	})
+	m.SentDirect = append(m.SentDirect, MockMessagePair{
 		text:     text,
 		userID:   userID,
 		isDirect: true,
@@ -134,29 +154,4 @@ func (mp *MockMessagePair) UserID() string {
 // relavent to this message.
 func (mp *MockMessagePair) IsDirect() bool {
 	return mp.isDirect
-}
-
-type MockState struct {
-	MockRobot   victor.Robot
-	MockMessage chat.Message
-	MockFields  []string
-}
-
-// Returns the Robot
-func (s *MockState) Robot() victor.Robot {
-	return s.MockRobot
-}
-
-// Returns the Chat adapter
-func (s *MockState) Chat() chat.Adapter {
-	return s.MockRobot.Chat()
-}
-
-// Returns the Message
-func (s *MockState) Message() chat.Message {
-	return s.MockMessage
-}
-
-func (s *MockState) Fields() []string {
-	return s.MockFields
 }
