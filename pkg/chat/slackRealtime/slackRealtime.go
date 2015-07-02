@@ -228,7 +228,7 @@ func (adapter *SlackAdapter) getUserFromSlack(userID string) (*slack.User, error
 }
 
 func (adapter *SlackAdapter) handleMessage(event *slack.MessageEvent) {
-	if event.SubType == "message_changed" {
+	if len(event.SubType) > 0 {
 		return
 	}
 	user, _ := adapter.getUserFromSlack(event.UserId)
