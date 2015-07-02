@@ -204,21 +204,31 @@ func (d *dispatch) ProcessMessage(m chat.Message) {
 		// slices are cheap (reference original) so if no match then it's ok
 		messageText = messageText[len(nameMatch):]
 		if !d.matchCommands(m, messageText) {
-			d.callDefault(m)
+			d.callDefault(m, messageText)
 		}
 	} else if len(nameMatch) == 0 {
 		d.matchPatterns(m)
 	}
 }
 
+func getFields(messageText, commandName string) ([]string, error) {
+	remainingText := strings.TrimSpace(messageText[len(commandName):])
+	return shellwords.Parse(remainingText)
+}
+
 // callDefault invokes the default message handler if one is set.
 // If one is not set then it logs the unhandled occurrance but otherwise does
 // not fail.
-func (d *dispatch) callDefault(m chat.Message) {
+func (d *dispatch) callDefault(m chat.Message, messageText string) {
+	fields, err := getFields(messageText, "")
+	if err != nil {
+		log.Println(err)
+	}
 	if d.defaultHandler != nil {
 		d.defaultHandler.Handle(&state{
 			robot:   d.robot,
 			message: m,
+			fields:  fields,
 		})
 	} else {
 		log.Println("Default handler invoked but none is set.")
@@ -239,9 +249,7 @@ func (d *dispatch) matchCommands(m chat.Message, messageText string) bool {
 	if !defined {
 		return false
 	}
-	remainingText := messageText
-	remainingText = strings.TrimSpace(remainingText[len(commandName):])
-	fields, err := shellwords.Parse(remainingText)
+	fields, err := getFields(messageText, commandName)
 	if err != nil {
 		log.Println(err.Error())
 	}

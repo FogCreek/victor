@@ -173,6 +173,32 @@ func TestFields(t *testing.T) {
 	bot.ProcessMessage(msg)
 }
 
+func TestFieldsDefaultHandler(t *testing.T) {
+	var expectedFields []string
+	msg := &chat.BaseMessage{MsgIsDirect: true}
+	bot := getMockBot()
+	handler := func(s State) {
+		assert.Equal(t, expectedFields, s.Fields(), "Fields mismatch.")
+	}
+	bot.dispatch.SetDefaultHandler(handler)
+	expectedFields = []string{}
+	msg.MsgText = ""
+	bot.ProcessMessage(msg)
+	expectedFields = []string{"test"}
+	msg.MsgText = "test"
+	bot.ProcessMessage(msg)
+	expectedFields = []string{"test", "this", "is", "a", "test"}
+	msg.MsgText = "test this is a test"
+	bot.ProcessMessage(msg)
+	expectedFields = []string{"test", "this", " is a test"}
+	msg.MsgText = "test this \" is a test\""
+	bot.ProcessMessage(msg)
+
+	expectedFields = []string{"123"}
+	msg.MsgText = botName + " 123"
+	bot.ProcessMessage(msg)
+}
+
 func TestDefaultHandler(t *testing.T) {
 	bot := getMockBot()
 	defaultHandle := HandlerCount{t: t}
