@@ -7,9 +7,9 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/FogCreek/victor/pkg/chat"
-	"github.com/mattn/go-shellwords"
 )
 
 // Printf style format for a bot's name regular expression
@@ -211,19 +211,16 @@ func (d *dispatch) ProcessMessage(m chat.Message) {
 	}
 }
 
-func getFields(messageText, commandName string) ([]string, error) {
+func getFields(messageText, commandName string) []string {
 	remainingText := strings.TrimSpace(messageText[len(commandName):])
-	return shellwords.Parse(remainingText)
+	return parseFields(remainingText)
 }
 
 // callDefault invokes the default message handler if one is set.
 // If one is not set then it logs the unhandled occurrance but otherwise does
 // not fail.
 func (d *dispatch) callDefault(m chat.Message, messageText string) {
-	fields, err := getFields(messageText, "")
-	if err != nil {
-		log.Println(err)
-	}
+	fields := getFields(messageText, "")
 	if d.defaultHandler != nil {
 		d.defaultHandler.Handle(&state{
 			robot:   d.robot,
@@ -249,10 +246,7 @@ func (d *dispatch) matchCommands(m chat.Message, messageText string) bool {
 	if !defined {
 		return false
 	}
-	fields, err := getFields(messageText, commandName)
-	if err != nil {
-		log.Println(err.Error())
-	}
+	fields := getFields(messageText, commandName)
 	command.Handler().Handle(&state{
 		robot:   d.robot,
 		message: m,
@@ -298,7 +292,6 @@ func showAllCommands(s State, d *dispatch) {
 		if !ok || docPair.IsHidden() {
 			continue
 		}
-		// buf.WriteString("*•\t")
 		buf.WriteString("*")
 		buf.WriteString(docPair.Name())
 		buf.WriteString("* - _")
@@ -334,4 +327,45 @@ func showCommandHelp(s State, d *dispatch) {
 		buf.WriteString("\n")
 	}
 	s.Chat().Send(s.Message().ChannelID(), buf.String())
+}
+
+var quoteCharacters = &unicode.RangeTable{
+	R16: []unicode.Range16{
+		unicode.Range16{Lo: '"', Hi: '"', Stride: 1},
+	},
+}
+
+func parseFields(input string) []string {
+	fields := make([]string, 0, 10)
+	skipSpaces := true
+	fieldStart := -1
+
+	for i, r := range input {
+		if unicode.In(r, quoteCharacters) {
+			if fieldStart == -1 {
+				// start field
+				fieldStart = i + 1
+				skipSpaces = false
+			} else {
+				// end field
+				fields = append(fields, input[fieldStart:i])
+				fieldStart = -1
+				skipSpaces = true
+			}
+		} else if unicode.IsSpace(r) && skipSpaces {
+			// end field if not in a quoted field
+			if fieldStart != -1 {
+				fields = append(fields, input[fieldStart:i])
+				fieldStart = -1
+			}
+		} else if fieldStart == -1 {
+			// start field
+			fieldStart = i
+		}
+	}
+	if fieldStart != -1 {
+		// end last field if it hasn't yet
+		fields = append(fields, input[fieldStart:])
+	}
+	return fields
 }

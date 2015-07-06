@@ -148,7 +148,44 @@ func TestProcessMessageCommand(t *testing.T) {
 	name1Handle.HasRun(1)
 }
 
-func TestFields(t *testing.T) {
+func TestFieldsDirectly(t *testing.T) {
+	var expectedOutput []string
+	var input string
+
+	expectedOutput = []string{}
+	input = ""
+	assert.Equal(t, expectedOutput, parseFields(input), "Incorrect field parsing.")
+
+	expectedOutput = []string{}
+	input = "    \t\t\n   "
+	assert.Equal(t, expectedOutput, parseFields(input), "Incorrect field parsing.")
+
+	expectedOutput = []string{"a"}
+	input = "a"
+	assert.Equal(t, expectedOutput, parseFields(input), "Incorrect field parsing.")
+
+	expectedOutput = []string{"a", "b"}
+	input = "a     b"
+	assert.Equal(t, expectedOutput, parseFields(input), "Incorrect field parsing.")
+
+	expectedOutput = []string{"a", "b"}
+	input = "a\t\t\n   b"
+	assert.Equal(t, expectedOutput, parseFields(input), "Incorrect field parsing.")
+
+	expectedOutput = []string{"a\t  b"}
+	input = "\"a\t  b\""
+	assert.Equal(t, expectedOutput, parseFields(input), "Incorrect field parsing.")
+
+	input = "you're it's \"i'm who's\""
+	expectedOutput = []string{"you're", "it's", "i'm who's"}
+	assert.Equal(t, expectedOutput, parseFields(input), "Incorrect field parsing.")
+
+	input = "\"test of\" \t\n       unclosed\t \"quotes and\tspaces"
+	expectedOutput = []string{"test of", "unclosed", "quotes and\tspaces"}
+	assert.Equal(t, expectedOutput, parseFields(input), "Incorrect field parsing.")
+}
+
+func TestFieldsThroughBot(t *testing.T) {
 	var expectedFields []string
 	msg := &chat.BaseMessage{MsgIsDirect: true}
 	bot := getMockBot()
