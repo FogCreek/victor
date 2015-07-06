@@ -18,7 +18,7 @@ const AdapterName = "slackRealtime"
 // Prefix for the user's ID which is used when reading/writing from the bot's store
 const userInfoPrefix = AdapterName + "."
 
-const userIDRegexpString = "\\b<?@?(U[^\\s\\|]+)(?:(?:|\\S+)?>)"
+const userIDRegexpString = "\\b<?@?(U[[:alnum:]]+)(?:(?:|\\S+)?>?)"
 
 // Match "<@Userid>" and "<@UserID|fullname>"
 var userIDRegexp = regexp.MustCompile(userIDRegexpString)
@@ -108,11 +108,13 @@ type SlackAdapter struct {
 // not exist or if an error occurrs during the slack API call.
 func (adapter *SlackAdapter) GetUser(userIDStr string) chat.User {
 	if !adapter.IsPotentialUser(userIDStr) {
+		log.Printf("%s is not a potential user", userIDStr)
 		return nil
 	}
 	userID := adapter.NormalizeUserID(userIDStr)
 	userObj, err := adapter.getUserFromSlack(userID)
 	if err != nil {
+		log.Println("Error getting user: " + err.Error())
 		return nil
 	}
 	return &chat.BaseUser{
