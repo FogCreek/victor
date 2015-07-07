@@ -6,10 +6,9 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/FogCreek/victor/pkg/chat"
-	"github.com/nlopes/slack"
+	"github.com/abourget/slack"
 )
 
 // The Slack Websocket's registered adapter name for the victor framework.
@@ -92,13 +91,14 @@ func (c configImpl) Token() string {
 type SlackAdapter struct {
 	robot           chat.Robot
 	token           string
-	instance        *slack.Slack
-	wsAPI           *slack.SlackWS
+	instance        *slack.Client
+	rtm             *slack.RTM
 	chReceiver      chan slack.SlackEvent
 	channelInfo     map[string]channelGroupInfo
 	directMessageID map[string]string
 	userInfo        map[string]slack.User
 	domain          string
+	botID           string
 }
 
 // GetUser will parse the given user ID string and then return the user's
@@ -150,23 +150,15 @@ func (adapter *SlackAdapter) NormalizeUserID(userID string) string {
 func (adapter *SlackAdapter) Run() error {
 	adapter.instance = slack.New(adapter.token)
 	adapter.instance.SetDebug(false)
-	// TODO need to look up what these values actually mean...
-	var err error
-	adapter.wsAPI, err = adapter.instance.StartRTM("", "http://example.com")
-	// TODO remove fatal crash or recover from it elsewhere
-	if err != nil {
-		return err
-	}
-	adapter.initAdapterInfo()
-	// sets up the monitoring code for sending/receiving messages from slack
-	go adapter.wsAPI.HandleIncomingEvents(adapter.chReceiver)
-	go adapter.wsAPI.Keepalive(20 * time.Second)
+	adapter.rtm = adapter.instance.NewRTM()
+	go adapter.rtm.ManageConnection()
 	go adapter.monitorEvents()
 	return nil
 }
 
-func (adapter *SlackAdapter) initAdapterInfo() {
-	info := adapter.instance.GetInfo()
+func (adapter *SlackAdapter) initAdapterInfo(info *slack.Info) {
+	// info := adapter.rtm.GetInfo()
+	adapter.botID = info.User.Id
 	adapter.domain = info.Team.Domain
 	for _, channel := range info.Channels {
 		if !channel.IsMember {
@@ -282,7 +274,7 @@ func (adapter *SlackAdapter) getArchiveLink(channelName, timestamp string) strin
 //
 // TODO might want to handle unescaping emails and urls here
 func (adapter *SlackAdapter) unescapeMessage(msg string) string {
-	userID := getEncodedUserID(adapter.instance.GetInfo().User.Id)
+	userID := getEncodedUserID(adapter.botID)
 	if strings.HasPrefix(msg, userID) {
 		return strings.Replace(msg, userID, adapter.robot.Name(), 1)
 	}
@@ -298,31 +290,36 @@ func getEncodedUserID(userID string) string {
 // incoming messages.
 func (adapter *SlackAdapter) monitorEvents() {
 	for {
-		msg := <-adapter.chReceiver
-		switch msg.Data.(type) {
+		event := <-adapter.rtm.IncomingEvents
+		switch e := event.Data.(type) {
+		case *slack.ConnectingEvent:
+			log.Println(adapter.token + " connecting")
+		case *slack.ConnectedEvent:
+			log.Println(adapter.token + " connected")
+			adapter.initAdapterInfo(e.Info)
+		case *slack.DisconnectedEvent:
+			// TODO handle disconnect
+			log.Println(adapter.token + " disconnected")
 		case *slack.MessageEvent:
-			go adapter.handleMessage(msg.Data.(*slack.MessageEvent))
+			go adapter.handleMessage(e)
 		case *slack.ChannelJoinedEvent:
-			go adapter.joinedChannel(msg.Data.(*slack.ChannelJoinedEvent).Channel, true)
+			go adapter.joinedChannel(e.Channel, true)
 		case *slack.GroupJoinedEvent:
-			go adapter.joinedChannel(msg.Data.(*slack.GroupJoinedEvent).Channel, false)
+			go adapter.joinedChannel(e.Channel, false)
 		case *slack.IMCreatedEvent:
-			// could also use im open? https://api.slack.com/events/im_created
-			go adapter.joinedIM(msg.Data.(*slack.IMCreatedEvent))
+			go adapter.joinedIM(e)
 		case *slack.ChannelLeftEvent:
-			go adapter.leftChannel(msg.Data.(*slack.ChannelLeftEvent).ChannelId)
+			go adapter.leftChannel(e.ChannelId)
 		case *slack.GroupLeftEvent:
-			go adapter.leftChannel(msg.Data.(*slack.GroupLeftEvent).ChannelId)
+			go adapter.leftChannel(e.ChannelId)
 		case *slack.IMCloseEvent:
-			go adapter.leftIM(msg.Data.(*slack.IMCloseEvent))
+			go adapter.leftIM(e)
 		case *slack.TeamDomainChangeEvent:
-			go adapter.domainChanged(msg.Data.(*slack.TeamDomainChangeEvent))
+			go adapter.domainChanged(e)
 		case *slack.UserChangeEvent:
-			go adapter.userChanged(msg.Data.(*slack.UserChangeEvent).User)
+			go adapter.userChanged(e.User)
 		case *slack.TeamJoinEvent:
-			// Need to dereference the user object due to inconsistencies in
-			// the go slack api.
-			go adapter.userChanged(*(msg.Data.(*slack.TeamJoinEvent).User))
+			go adapter.userChanged(*e.User)
 		}
 	}
 }
@@ -339,7 +336,6 @@ func (adapter *SlackAdapter) domainChanged(event *slack.TeamDomainChangeEvent) {
 }
 
 func (adapter *SlackAdapter) joinedChannel(channel slack.Channel, isChannel bool) {
-	// log.Printf("Loaded info for channel/group \"%s\"", channel.Name)
 	adapter.channelInfo[channel.Id] = channelGroupInfo{
 		Name:      channel.Name,
 		ID:        channel.Id,
@@ -348,7 +344,6 @@ func (adapter *SlackAdapter) joinedChannel(channel slack.Channel, isChannel bool
 }
 
 func (adapter *SlackAdapter) joinedIM(event *slack.IMCreatedEvent) {
-	// log.Printf("Loaded info for IM \"%s\"", event.Channel.Id)
 	adapter.channelInfo[event.Channel.Id] = channelGroupInfo{
 		Name:   event.Channel.Name,
 		ID:     event.Channel.Id,
@@ -364,14 +359,13 @@ func (adapter *SlackAdapter) leftIM(event *slack.IMCloseEvent) {
 }
 
 func (adapter *SlackAdapter) leftChannel(channelID string) {
-	// log.Printf("Forgetting channel/group with ID %s", channelID)
 	delete(adapter.channelInfo, channelID)
 }
 
 // Send sends a message to the given slack channel.
 func (adapter *SlackAdapter) Send(channelID, msg string) {
-	msgObj := adapter.wsAPI.NewOutgoingMessage(msg, channelID)
-	adapter.wsAPI.SendMessage(msgObj)
+	msgObj := adapter.rtm.NewOutgoingMessage(msg, channelID)
+	adapter.rtm.SendMessage(msgObj)
 }
 
 // SendDirectMessage sends the given message to the given user in a direct
