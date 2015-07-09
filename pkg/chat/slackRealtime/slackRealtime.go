@@ -299,6 +299,8 @@ func (adapter *SlackAdapter) monitorEvents() {
 		case *slack.ConnectedEvent:
 			log.Println(adapter.token + " connected")
 			adapter.initAdapterInfo(e.Info)
+		case *slack.SlackWSError:
+			log.Println("Slack Error: " + e.Error())
 		case *slack.DisconnectedEvent:
 			// TODO handle disconnect
 			log.Println(adapter.token + " disconnected")
