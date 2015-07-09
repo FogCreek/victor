@@ -11,6 +11,9 @@ import (
 	"github.com/FogCreek/victor/pkg/chat"
 )
 
+// TokenLength is the expected length of a Slack API auth token.
+const TokenLength = 40
+
 // The Slack Websocket's registered adapter name for the victor framework.
 const AdapterName = "slackRealtime"
 
