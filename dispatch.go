@@ -329,17 +329,26 @@ func (d *dispatch) matchCommands(m chat.Message, messageText string) bool {
 // This performs a linear search through the slice of regular expression
 // commands so their priority is the same as the insertion order.
 func (d *dispatch) matchCommandRegexp(m chat.Message, messageText, commandName string, fields []string) bool {
+	cmd := d.findCommandRegexp(commandName)
+	if cmd == nil {
+		return false
+	}
+	cmd.Handler().Handle(&state{
+		robot:   d.robot,
+		message: m,
+		fields:  fields,
+	})
+	return true
+
+}
+
+func (d *dispatch) findCommandRegexp(commandPart string) HandlerDocPair {
 	for _, cmd := range d.regexpCommands {
-		if cmd.Regexp().MatchString(commandName) {
-			cmd.Handler().Handle(&state{
-				robot:   d.robot,
-				message: m,
-				fields:  fields,
-			})
-			return true
+		if cmd.Regexp().MatchString(commandPart) {
+			return cmd
 		}
 	}
-	return false
+	return nil
 }
 
 // matchPatterns iterates through the array of registered regular expressions
@@ -397,9 +406,12 @@ func showCommandHelp(s State, d *dispatch) {
 	cmdName := strings.ToLower(s.Fields()[0])
 	docPair, exists := d.commands[cmdName]
 	if !exists {
-		textFmt := "Unrecognized command _%s_.  Type *`help`* to view a list of all available commands."
-		s.Chat().Send(s.Message().ChannelID(), fmt.Sprintf(textFmt, cmdName))
-		return
+		docPair = d.findCommandRegexp(cmdName)
+		if docPair == nil {
+			textFmt := "Unrecognized command _%s_.  Type *`help`* to view a list of all available commands."
+			s.Chat().Send(s.Message().ChannelID(), fmt.Sprintf(textFmt, cmdName))
+			return
+		}
 	}
 	var buf bytes.Buffer
 	buf.WriteString("*")
