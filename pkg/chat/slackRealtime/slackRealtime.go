@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/FogCreek/slack"
 	"github.com/FogCreek/victor/pkg/chat"
-	"github.com/abourget/slack"
 )
 
 // The Slack Websocket's registered adapter name for the victor framework.
@@ -151,8 +151,8 @@ func (adapter *SlackAdapter) Run() error {
 	adapter.instance = slack.New(adapter.token)
 	adapter.instance.SetDebug(false)
 	adapter.rtm = adapter.instance.NewRTM()
-	go adapter.rtm.ManageConnection()
 	go adapter.monitorEvents()
+	go adapter.rtm.ManageConnection()
 	return nil
 }
 
@@ -292,6 +292,8 @@ func (adapter *SlackAdapter) monitorEvents() {
 	for {
 		event := <-adapter.rtm.IncomingEvents
 		switch e := event.Data.(type) {
+		case *slack.InvalidAuthEvent:
+			log.Println(adapter.token + " invalid")
 		case *slack.ConnectingEvent:
 			log.Println(adapter.token + " connecting")
 		case *slack.ConnectedEvent:
