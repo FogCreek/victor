@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/FogCreek/victor/pkg/chat"
@@ -21,8 +22,11 @@ type Robot interface {
 	Stop()
 	Name() string
 	HandleCommand(HandlerDocPair)
-	SetDefaultHandler(HandlerFunc)
+	HandleCommandPattern(string, HandlerDocPair)
+	HandleCommandRegexp(*regexp.Regexp, HandlerDocPair)
 	HandlePattern(string, HandlerFunc)
+	HandleRegexp(*regexp.Regexp, HandlerFunc)
+	SetDefaultHandler(HandlerFunc)
 	EnableHelpCommand()
 	Commands() map[string]HandlerDocPair
 	Receive(chat.Message)

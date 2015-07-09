@@ -15,9 +15,8 @@ import (
 // Printf style format for a bot's name regular expression
 const botNameRegexFormat = "(?i)^(?:@)?%s\\s*[:,]?\\s*"
 
-// Pre-compiled regular expression to match a word that starts a string
-var wordRegex = regexp.MustCompile("^(\\S+)")
-
+// Name of default "help" command that is added on a call to
+// *dispatch.EnableHelpCommand().
 const helpCommandName = "help"
 
 // HandlerDocPair provides a common interface for command handlers to be added
@@ -26,6 +25,8 @@ const helpCommandName = "help"
 type HandlerDocPair interface {
 	Handler() HandlerFunc
 	Name() string
+	IsRegexpCommand() bool
+	Regexp() *regexp.Regexp
 	Description() string
 	Usage() []string
 	IsHidden() bool
@@ -38,6 +39,7 @@ type HandlerDoc struct {
 	CmdDescription string
 	CmdUsage       []string
 	CmdIsHidden    bool
+	cmdRegexp      *regexp.Regexp
 }
 
 // IsHidden returns true if this command should be hidden from the help list of
@@ -55,6 +57,18 @@ func (d *HandlerDoc) Handler() HandlerFunc {
 // normalized (all lower case).
 func (d *HandlerDoc) Name() string {
 	return d.CmdName
+}
+
+// Regexp returns the handler's set regexp. This should be nil for a normal
+// command and not nil for a pattern command.
+func (d *HandlerDoc) Regexp() *regexp.Regexp {
+	return d.cmdRegexp
+}
+
+// IsRegexpCommand returns true if this command has a set regular expression
+// or false if it's name should be used to match input to its handler.
+func (d *HandlerDoc) IsRegexpCommand() bool {
+	return d.cmdRegexp != nil
 }
 
 // Description returns the command's set description.
@@ -102,6 +116,7 @@ type dispatch struct {
 	robot          Robot
 	defaultHandler HandlerFunc
 	commands       map[string]HandlerDocPair
+	regexpCommands []HandlerDocPair
 	commandNames   []string
 	patterns       []HandlerRegExpPair
 	botNameRegex   *regexp.Regexp
@@ -112,12 +127,14 @@ func newDispatch(bot Robot) *dispatch {
 		robot:          bot,
 		defaultHandler: nil,
 		commands:       make(map[string]HandlerDocPair),
+		regexpCommands: make([]HandlerDocPair, 0, 10),
 		commandNames:   make([]string, 0, 10),
 		patterns:       make([]HandlerRegExpPair, 0, 10),
 		botNameRegex:   regexp.MustCompile(fmt.Sprintf(botNameRegexFormat, bot.Name())),
 	}
 }
 
+// Commands returns a copy of the internal commands map.
 func (d *dispatch) Commands() map[string]HandlerDocPair {
 	cmdCopy := make(map[string]HandlerDocPair)
 	for key, value := range d.commands {
@@ -126,6 +143,9 @@ func (d *dispatch) Commands() map[string]HandlerDocPair {
 	return cmdCopy
 }
 
+// EnableHelpCommand registers the default help handler with the bot's command
+// map under the name "help". This will log a message if there is already a
+// handler registered under that name.
 func (d *dispatch) EnableHelpCommand() {
 	if _, exists := d.commands[helpCommandName]; exists {
 		log.Println("Enabling built in help command and overriding set help command.")
@@ -157,20 +177,55 @@ func (d *dispatch) HandleCommand(cmd HandlerDocPair) {
 	}
 }
 
-// SetDefaultHandler sets a function as the default handler which is called
-// when a potential command message (either sent @ the bot's name or in a
-// direct message) does not match any of the other set commands.
-func (d *dispatch) SetDefaultHandler(handler HandlerFunc) {
-	if d.defaultHandler != nil {
-		log.Println("Default handler has been set more than once.")
+// HandleCommandPatternadds a given pattern to the bot's list of regexp
+// commands. This is equivalent to calling HandleCommandRegexp but with a
+// non-compiled regular expression.
+//
+// This uses regexp.MustCompile so it panics if given an invalid regular
+// expression.
+func (d *dispatch) HandleCommandPattern(pattern string, cmd HandlerDocPair) {
+	d.HandleCommandRegexp(regexp.MustCompile(pattern), cmd)
+}
+
+// HandleCommandRegexp adds a given pattern to the bot's list of regular
+// expression commands. These commands are then checked on any message that is
+// considered a potential command (either sent @ the bot's name or in a direct
+// message). They are evaluated only after no regular commands match the input
+// and then they are checked in the same order as they were added. They are
+// only checked against the first word of the message!
+func (d *dispatch) HandleCommandRegexp(exp *regexp.Regexp, cmd HandlerDocPair) {
+	lowerName := strings.ToLower(cmd.Name())
+	if exp == nil {
+		log.Panicf("Cannot add nil regular expression command under name \"%s\"\n.", lowerName)
+		return
 	}
-	d.defaultHandler = handler
+	newCommand := true
+	if _, exists := d.commands[lowerName]; exists {
+		log.Printf("\"%s\" has been set more than once.\n", lowerName)
+		newCommand = false
+	}
+	newCmd := &HandlerDoc{
+		CmdHandler:     cmd.Handler(),
+		CmdName:        cmd.Name(),
+		CmdDescription: cmd.Description(),
+		CmdUsage:       cmd.Usage(),
+		CmdIsHidden:    cmd.IsHidden(),
+		cmdRegexp:      exp,
+	}
+	d.commands[lowerName] = newCmd
+	d.regexpCommands = append(d.regexpCommands, newCmd)
+	if newCommand {
+		d.commandNames = append(d.commandNames, cmd.Name())
+		sort.Strings(d.commandNames)
+	}
 }
 
 // HandlePattern adds a given pattern to the bot's list of regexp expressions.
-// This is equivalent to calling HandleRegexp with a pre-compiled regular
-// expression. This uses regexp.MustCompile so it panics if given an
-// invalid regular expression.
+// This is equivalent to calling HandleRegexp but with a non-compiled regular
+// expression.
+//
+// This uses regexp.MustCompile so it panics if given an invalid regular
+// expression.
 func (d *dispatch) HandlePattern(pattern string, handler HandlerFunc) {
 	d.HandleRegexp(regexp.MustCompile(pattern), handler)
 }
@@ -181,10 +236,24 @@ func (d *dispatch) HandlePattern(pattern string, handler HandlerFunc) {
 // direct message). If multiple expressions are added then they will be
 // evaluated in the order of insertion.
 func (d *dispatch) HandleRegexp(exp *regexp.Regexp, handler HandlerFunc) {
+	if exp == nil {
+		log.Panicln("Cannot add nil regular expression.")
+		return
+	}
 	d.patterns = append(d.patterns, &handlerPair{
 		exp:    exp,
 		handle: handler,
 	})
+}
+
+// SetDefaultHandler sets a function as the default handler which is called
+// when a potential command message (either sent @ the bot's name or in a
+// direct message) does not match any of the other set commands.
+func (d *dispatch) SetDefaultHandler(handler HandlerFunc) {
+	if d.defaultHandler != nil {
+		log.Println("Default handler has been set more than once.")
+	}
+	d.defaultHandler = handler
 }
 
 // ProcessMessage finds a match for a message and runs its Handler.
@@ -211,16 +280,11 @@ func (d *dispatch) ProcessMessage(m chat.Message) {
 	}
 }
 
-func getFields(messageText, commandName string) []string {
-	remainingText := strings.TrimSpace(messageText[len(commandName):])
-	return parseFields(remainingText)
-}
-
 // callDefault invokes the default message handler if one is set.
 // If one is not set then it logs the unhandled occurrance but otherwise does
 // not fail.
 func (d *dispatch) callDefault(m chat.Message, messageText string) {
-	fields := getFields(messageText, "")
+	fields := parseFields(messageText)
 	if d.defaultHandler != nil {
 		d.defaultHandler.Handle(&state{
 			robot:   d.robot,
@@ -235,18 +299,19 @@ func (d *dispatch) callDefault(m chat.Message, messageText string) {
 // matchCommands attempts to match a given message with the map of registered
 // commands. It performs case-insensitive matching and will return true upon
 // the first match. It expects the second parameter to be the message's text
-// with the bot's name and any follwing up until the next word whitespace
-// removed.
+// with the bot's name and any follwing text up until the next word whitespace
+// removed. This returns true if a match is made and false otherwise.
 func (d *dispatch) matchCommands(m chat.Message, messageText string) bool {
-	commandName := strings.ToLower(wordRegex.FindString(messageText))
-	if len(commandName) == 0 {
+	fullFields := parseFields(messageText)
+	if len(fullFields) == 0 {
 		return false
 	}
+	commandName := strings.ToLower(fullFields[0])
+	fields := fullFields[1:]
 	command, defined := d.commands[commandName]
-	if !defined {
-		return false
+	if !defined || command.IsRegexpCommand() {
+		return d.matchCommandRegexp(m, messageText, commandName, fields)
 	}
-	fields := getFields(messageText, commandName)
 	command.Handler().Handle(&state{
 		robot:   d.robot,
 		message: m,
@@ -255,20 +320,43 @@ func (d *dispatch) matchCommands(m chat.Message, messageText string) bool {
 	return true
 }
 
+// matchCommandRegexp attemps to match a given command word from the given
+// message to one of the added regular expression commands. It expects the
+// second parameter to be the message's text with the bot's name and any
+// following whitespace removed. This returns true if a match is made and false
+// otherwise.
+//
+// This performs a linear search through the slice of regular expression
+// commands so their priority is the same as the insertion order.
+func (d *dispatch) matchCommandRegexp(m chat.Message, messageText, commandName string, fields []string) bool {
+	for _, cmd := range d.regexpCommands {
+		if cmd.Regexp().MatchString(commandName) {
+			cmd.Handler().Handle(&state{
+				robot:   d.robot,
+				message: m,
+				fields:  fields,
+			})
+			return true
+		}
+	}
+	return false
+}
+
 // matchPatterns iterates through the array of registered regular expressions
 // (patterns) in the order of insertion and checks if they match any part of
 // the given message's text. If they do then they are invoked with an empty
 // fields array.
-func (d *dispatch) matchPatterns(m chat.Message) {
+func (d *dispatch) matchPatterns(m chat.Message) bool {
 	for _, pair := range d.patterns {
 		if pair.Exp().MatchString(m.Text()) {
 			pair.Handler().Handle(&state{
 				robot:   d.robot,
 				message: m,
 			})
-			return
+			return true
 		}
 	}
+	return false
 }
 
 func defaultHelpHandler(s State, d *dispatch) {

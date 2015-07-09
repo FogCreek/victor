@@ -20,43 +20,59 @@ func getMockBot() *robot {
 	})
 }
 
-// HandlerCount provides an easy way to construct a handler and assert how many
-// times it has been called by the message router.
-type HandlerCount struct {
-	t        *testing.T
-	timesRun int
+// HandlerMock provides an easy way to construct a handler and assert how many
+// times it has been called by the message router and/or the fields that it is
+// called with.
+type HandlerMock struct {
+	t              *testing.T
+	timesRun       int
+	expectedFields []string
 }
 
 // TimesRun returns the number of times that the function returned by this
-// HandlerCount's Func() method has been called.
-func (h *HandlerCount) TimesRun() int {
+// HandlerMock's Func() method has been called.
+func (h *HandlerMock) TimesRun() int {
 	return h.timesRun
 }
 
 // Func returns a function of type HandlerFunc which increments an internal
 // counter every time it is called. Multiple calls to Func() will return
 // different function instances but all will increment the same internal count.
-func (h *HandlerCount) Func() HandlerFunc {
+//
+// If the expected fields property is set to a non-nil value then a call to the
+// returned function will assert the expected and actual fields equality.
+func (h *HandlerMock) Func() HandlerFunc {
 	return func(s State) {
 		h.timesRun++
+		if h.expectedFields != nil {
+			assert.Equal(h.t, h.expectedFields, s.Fields(), "Fields mismatch - fields incorrectly parsed.")
+		}
 	}
 }
 
-// HasRun asserts that this HandlerCount instance has been run the expected
+// HasRun asserts that this HandlerMock instance has been run the expected
 // number of times. This is equivalent to HasRunCustom but with a preset failed
 // message.
-func (h *HandlerCount) HasRun(expectedTimesRun int) {
+func (h *HandlerMock) HasRun(expectedTimesRun int) {
 	h.HasRunCustom(expectedTimesRun, "Count mismatch - handlers incorrectly called.")
 }
 
-// HasRunCustom asserts that this HandlerCount instance has been run the expected
+// HasRunCustom asserts that this HandlerMock instance has been run the expected
 // number of times. The "failedMessage" parameter is the message that will be
 // shown if the assertion fails.
-func (h *HandlerCount) HasRunCustom(expectedTimesRun int, failedMessage string) {
+func (h *HandlerMock) HasRunCustom(expectedTimesRun int, failedMessage string) {
 	if expectedTimesRun != h.timesRun {
 		assert.Fail(h.t, failedMessage)
 	}
 	// assert.Equal(h.t, expectedTimesRun, h.timesRun, failedMessage)
+}
+
+// ExpectFields sets up an assertion that the fields returned by the State
+// object upon a call to the handler are equal to the string slice given.
+// This overrides any previous expected fields. If this is set to nil then the
+// fields will not be checked on a call to the handler function.
+func (h *HandlerMock) ExpectFields(fields []string) {
+	h.expectedFields = fields
 }
 
 func TestNewDispatch(t *testing.T) {
@@ -89,38 +105,33 @@ func TestCommandsGetter(t *testing.T) {
 
 func TestHandleCommand(t *testing.T) {
 	bot := getMockBot()
-	var handlerFunc HandlerFunc
-	count := 0
-	handlerFunc = func(s State) {
-		if count == 0 {
-			assert.Fail(t, "Added handler should not have been called upon creation.")
-		}
-		// should make count == 2 when called for the first time
-		count++
-	}
+	handler := HandlerMock{t: t}
 	bot.dispatch.HandleCommand(&HandlerDoc{
-		CmdHandler:     handlerFunc,
+		CmdHandler:     handler.Func(),
 		CmdName:        "name",
 		CmdUsage:       []string{"", "1", "2"},
 		CmdDescription: "description",
 		CmdIsHidden:    true,
 	})
-	// should make count == 1 so handlerFunc doesn't fail
-	count++
+	handler.HasRunCustom(0, "Handler should not have been called on creation.")
 	assert.Len(t, bot.dispatch.commands, 1, "Added command should be present in map.")
 	assert.Len(t, bot.dispatch.commandNames, 1, "Added command should be in commandNames list.")
 	// testify.assert.Contains doesn't support map keys right now https://github.com/stretchr/testify/pull/165
 	actualHandlerFunc, exists := bot.dispatch.commands["name"]
 	assert.True(t, exists, "Bot should contain new handler in commands map.")
 	assert.Contains(t, bot.dispatch.commandNames, "name", "Bot should contain new handler in commandNames")
+	assert.Equal(t, "name", actualHandlerFunc.Name(), "HandlerDoc name changed.")
+	assert.Equal(t, []string{"", "1", "2"}, actualHandlerFunc.Usage(), "HandlerDoc usage changed.")
+	assert.Equal(t, "description", actualHandlerFunc.Description(), "HandlerDoc description changed.")
+	assert.True(t, actualHandlerFunc.IsHidden(), "HandlerDoc IsHidden property changed.")
 	actualHandlerFunc.Handler().Handle(nil)
-	assert.Equal(t, 2, count, "Handler function should have increased count on call to Handle")
+	handler.HasRunCustom(1, "Handler function should have increased count on call to Handle")
 }
 
 func TestProcessMessageCommand(t *testing.T) {
 	bot := getMockBot()
-	name0Handle := HandlerCount{t: t}
-	name1Handle := HandlerCount{t: t}
+	name0Handle := HandlerMock{t: t}
+	name1Handle := HandlerMock{t: t}
 	bot.dispatch.HandleCommand(&HandlerDoc{
 		CmdHandler: name0Handle.Func(),
 		CmdName:    "name0",
@@ -186,60 +197,71 @@ func TestFieldsDirectly(t *testing.T) {
 }
 
 func TestFieldsThroughBot(t *testing.T) {
-	var expectedFields []string
 	msg := &chat.BaseMessage{MsgIsDirect: true}
 	bot := getMockBot()
-	handler := func(s State) {
-		assert.Equal(t, expectedFields, s.Fields(), "Fields mismatch.")
-	}
+	handler := HandlerMock{t: t}
 	bot.dispatch.HandleCommand(&HandlerDoc{
-		CmdHandler: handler,
+		CmdHandler: handler.Func(),
 		CmdName:    "test",
 	})
-	expectedFields = []string{}
+
+	handler.ExpectFields([]string{})
 	msg.MsgText = "test"
 	bot.ProcessMessage(msg)
-	expectedFields = []string{"test"}
+	handler.HasRun(1)
+
+	handler.ExpectFields([]string{"test"})
 	msg.MsgText = "test \t\n test"
 	bot.ProcessMessage(msg)
-	expectedFields = []string{"this", "is", "a", "test"}
+	handler.HasRun(2)
+
+	handler.ExpectFields([]string{"this", "is", "a", "test"})
 	msg.MsgText = "test this is a test"
 	bot.ProcessMessage(msg)
-	expectedFields = []string{"this", " is a test"}
+	handler.HasRun(3)
+
+	handler.ExpectFields([]string{"this", " is a test"})
 	msg.MsgText = "test this \" is a test\""
 	bot.ProcessMessage(msg)
+	handler.HasRun(4)
 }
 
 func TestFieldsDefaultHandler(t *testing.T) {
-	var expectedFields []string
 	msg := &chat.BaseMessage{MsgIsDirect: true}
 	bot := getMockBot()
-	handler := func(s State) {
-		assert.Equal(t, expectedFields, s.Fields(), "Fields mismatch.")
-	}
-	bot.dispatch.SetDefaultHandler(handler)
-	expectedFields = []string{}
+	handler := HandlerMock{t: t}
+	bot.dispatch.SetDefaultHandler(handler.Func())
+
+	handler.ExpectFields([]string{})
 	msg.MsgText = ""
 	bot.ProcessMessage(msg)
-	expectedFields = []string{"test"}
+	handler.HasRun(1)
+
+	handler.ExpectFields([]string{"test"})
 	msg.MsgText = "test"
 	bot.ProcessMessage(msg)
-	expectedFields = []string{"test", "this", "is", "a", "test"}
+	handler.HasRun(2)
+
+	handler.ExpectFields([]string{"test", "this", "is", "a", "test"})
 	msg.MsgText = "test this is a test"
 	bot.ProcessMessage(msg)
-	expectedFields = []string{"test", "this", " is a test"}
+	handler.HasRun(3)
+
+	handler.ExpectFields([]string{"test", "this", " is a test"})
 	msg.MsgText = "test this \" is a test\""
 	bot.ProcessMessage(msg)
+	handler.HasRun(4)
 
-	expectedFields = []string{"123"}
+	handler.ExpectFields([]string{"123"})
 	msg.MsgText = botName + " 123"
 	bot.ProcessMessage(msg)
+	handler.HasRun(5)
 }
 
 func TestDefaultHandler(t *testing.T) {
 	bot := getMockBot()
-	defaultHandle := HandlerCount{t: t}
-	otherHandle := HandlerCount{t: t}
+	defaultHandle := HandlerMock{t: t}
+	otherHandle := HandlerMock{t: t}
 	bot.dispatch.HandleCommand(&HandlerDoc{
 		CmdHandler: otherHandle.Func(),
 		CmdName:    "test",
@@ -270,9 +292,9 @@ func TestDefaultHandler(t *testing.T) {
 
 func TestPatterns(t *testing.T) {
 	bot := getMockBot()
-	commandHandle := HandlerCount{t: t}
-	patternHandle := HandlerCount{t: t}
-	defaultHandle := HandlerCount{t: t}
+	commandHandle := HandlerMock{t: t}
+	patternHandle := HandlerMock{t: t}
+	defaultHandle := HandlerMock{t: t}
 	bot.HandleCommand(&HandlerDoc{
 		CmdHandler: commandHandle.Func(),
 		CmdName:    "pattern",
@@ -316,4 +338,108 @@ func TestPatterns(t *testing.T) {
 	defaultHandle.HasRun(1)
 	commandHandle.HasRun(1)
 	patternHandle.HasRun(3)
+}
+
+func TestCommandPatternsFiring(t *testing.T) {
+	bot := getMockBot()
+	patternHandle := HandlerMock{t: t}
+	commandHandle := HandlerMock{t: t}
+	defaultHandle := HandlerMock{t: t}
+	// set up pattern command
+	// matches "hank", "hanks", thank", and "thanks" case insensitively
+	bot.HandleCommandPattern("(?i)[t]?hank[s]?", &HandlerDoc{
+		CmdHandler: patternHandle.Func(),
+		CmdName:    "pattern",
+	})
+	bot.HandleCommand(&HandlerDoc{
+		CmdHandler: commandHandle.Func(),
+		CmdName:    "thanks",
+	})
+	bot.SetDefaultHandler(defaultHandle.Func())
+	msg := &chat.BaseMessage{}
+
+	msg.MsgIsDirect = false
+	msg.MsgText = "thank you"
+	// should not fire command pattern or default
+	bot.ProcessMessage(msg)
+	defaultHandle.HasRun(0)
+	patternHandle.HasRun(0)
+	commandHandle.HasRun(0)
+
+	msg.MsgIsDirect = true
+	msg.MsgText = "pattern"
+	// should fire default handler
+	bot.ProcessMessage(msg)
+	defaultHandle.HasRun(1)
+	patternHandle.HasRun(0)
+	commandHandle.HasRun(0)
+
+	msg.MsgText = "thanks"
+	// should fire command and not pattern or default
+	bot.ProcessMessage(msg)
+	defaultHandle.HasRun(1)
+	patternHandle.HasRun(0)
+	commandHandle.HasRun(1)
+
+	msg.MsgIsDirect = false
+	msg.MsgText = botName + " thank you"
+	// should fire command pattern
+	bot.ProcessMessage(msg)
+	defaultHandle.HasRun(1)
+	patternHandle.HasRun(1)
+	commandHandle.HasRun(1)
+
+	msg.MsgText = botName + "than you"
+	// should fire default handler
+	bot.ProcessMessage(msg)
+	defaultHandle.HasRun(2)
+	patternHandle.HasRun(1)
+	commandHandle.HasRun(1)
+
+	msg.MsgIsDirect = true
+	msg.MsgText = "ThAnk \tyou field1 field2"
+	// should fire command pattern
+	bot.ProcessMessage(msg)
+	defaultHandle.HasRun(2)
+	patternHandle.HasRun(2)
+	commandHandle.HasRun(1)
+
+	msg.MsgIsDirect = true
+	msg.MsgText = "abcd thank you efg"
+	// should fire default handler despite match in middle of string
+	bot.ProcessMessage(msg)
+	defaultHandle.HasRun(3)
+	patternHandle.HasRun(2)
+	commandHandle.HasRun(1)
+}
+
+func TestCommandPatternsFields(t *testing.T) {
+	bot := getMockBot()
+	handler := HandlerMock{t: t}
+	// matches "hank", "hanks", thank", and "thanks" case insensitively
+	bot.HandleCommandPattern("(?i)[t]?hank[s]?", &HandlerDoc{
+		CmdHandler: handler.Func(),
+		CmdName:    "pattern",
+	})
+	msg := &chat.BaseMessage{MsgIsDirect: true}
+
+	msg.MsgText = "thanks"
+	handler.ExpectFields([]string{})
+	bot.ProcessMessage(msg)
+	handler.HasRun(1)
+
+	msg.MsgText = "thanks\t\t\n  "
+	handler.ExpectFields([]string{})
+	bot.ProcessMessage(msg)
+	handler.HasRun(2)
+
+	msg.MsgText = "thank s a bunch"
+	handler.ExpectFields([]string{"s", "a", "bunch"})
+	bot.ProcessMessage(msg)
+	handler.HasRun(3)
+
+	msg.MsgText = "ThAnkyou for \"every thing\""
+	handler.ExpectFields([]string{"for", "every thing"})
+	bot.ProcessMessage(msg)
+	handler.HasRun(4)
 }
