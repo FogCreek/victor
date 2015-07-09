@@ -28,6 +28,7 @@ type Adapter interface {
 	Run() error
 	Send(string, string)
 	SendDirectMessage(string, string)
+	SendTyping(string)
 	Stop()
 	// ID should return a unique ID for that adapter which is guarenteed to
 	// remain constant as long as the adapter points to the same chat instance.

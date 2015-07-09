@@ -94,6 +94,11 @@ func (m *MockChatAdapter) SendDirectMessage(userID, text string) {
 	})
 }
 
+// SendTyping does nothing.
+func (m *MockChatAdapter) SendTyping(channelID string) {
+	return
+}
+
 // Stop does nothing.
 func (m *MockChatAdapter) Stop() {
 	return

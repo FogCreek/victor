@@ -381,6 +381,10 @@ func (adapter *SlackAdapter) SendDirectMessage(userID, msg string) {
 	adapter.Send(channelID, msg)
 }
 
+func (adapter *SlackAdapter) SendTyping(channelID string) {
+	adapter.rtm.SendMessage(&slack.OutgoingMessage{Type: "typing", ChannelId: channelID})
+}
+
 func (adapter *SlackAdapter) getDirectMessageID(userID string) (string, error) {
 	// need to figure out if the first two bool return values are important
 	// https://github.com/nlopes/slack/blob/master/dm.go#L58
