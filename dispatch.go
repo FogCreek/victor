@@ -13,7 +13,7 @@ import (
 )
 
 // Printf style format for a bot's name regular expression
-const botNameRegexFormat = "(?i)^(?:@)?%s\\s*[:,]?\\s*"
+const botNameRegexFormat = `(?i)^@%s\s*[:,]?\s*`
 
 // Name of default "help" command that is added on a call to
 // *dispatch.EnableHelpCommand().

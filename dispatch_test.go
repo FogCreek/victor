@@ -9,13 +9,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-const botName = "testBot"
+const botName = "@testBot"
 
 // Returns a new *robot using the "mockAdapter" chat adapter and the bot name
 // set in the "botName" constant.
 func getMockBot() *robot {
 	return New(Config{
-		Name:        botName,
+		Name:        botName[1:],
 		ChatAdapter: "mockAdapter",
 	})
 }

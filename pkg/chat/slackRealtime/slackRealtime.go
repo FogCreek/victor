@@ -280,7 +280,7 @@ func (adapter *SlackAdapter) getArchiveLink(channelName, timestamp string) strin
 func (adapter *SlackAdapter) unescapeMessage(msg string) string {
 	userID := getEncodedUserID(adapter.botID)
 	if strings.HasPrefix(msg, userID) {
-		return strings.Replace(msg, userID, adapter.robot.Name(), 1)
+		return strings.Replace(msg, userID, "@"+adapter.robot.Name(), 1)
 	}
 	return msg
 }
