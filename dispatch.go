@@ -165,15 +165,15 @@ func (d *dispatch) EnableHelpCommand() {
 // (either sent @ the bot's name or in a direct message).
 func (d *dispatch) HandleCommand(cmd HandlerDocPair) {
 	lowerName := strings.ToLower(cmd.Name())
-	newCommand := true
 	if _, exists := d.commands[lowerName]; exists {
 		log.Printf("\"%s\" has been set more than once.", lowerName)
-		newCommand = false
 	}
 	d.commands[lowerName] = cmd
-	if newCommand {
-		d.commandNames = append(d.commandNames, cmd.Name())
-		sort.Strings(d.commandNames)
+	pos := sort.SearchStrings(d.commandNames, lowerName)
+	if pos == len(d.commandNames) || d.commandNames[pos] != lowerName {
+		d.commandNames = append(d.commandNames, "")
+		copy(d.commandNames[pos+1:], d.commandNames[pos:])
+		d.commandNames[pos] = lowerName
 	}
 }
 
@@ -199,11 +199,6 @@ func (d *dispatch) HandleCommandRegexp(exp *regexp.Regexp, cmd HandlerDocPair) {
 		log.Panicf("Cannot add nil regular expression command under name \"%s\"\n.", lowerName)
 		return
 	}
-	newCommand := true
-	if _, exists := d.commands[lowerName]; exists {
-		log.Printf("\"%s\" has been set more than once.\n", lowerName)
-		newCommand = false
-	}
 	newCmd := &HandlerDoc{
 		CmdHandler:     cmd.Handler(),
 		CmdName:        cmd.Name(),
@@ -212,12 +207,17 @@ func (d *dispatch) HandleCommandRegexp(exp *regexp.Regexp, cmd HandlerDocPair) {
 		CmdIsHidden:    cmd.IsHidden(),
 		cmdRegexp:      exp,
 	}
-	d.commands[lowerName] = newCmd
 	d.regexpCommands = append(d.regexpCommands, newCmd)
-	if newCommand {
-		d.commandNames = append(d.commandNames, cmd.Name())
-		sort.Strings(d.commandNames)
+	pos := sort.SearchStrings(d.commandNames, lowerName)
+	if pos == len(d.commandNames) || d.commandNames[pos] != lowerName {
+		d.commandNames = append(d.commandNames, "")
+		copy(d.commandNames[pos+1:], d.commandNames[pos:])
+		d.commandNames[pos] = lowerName
 	}
+}
+
+func (d *dispatch) commandNameIsDefined(lowerName string) {
+
 }
 
 // HandlePattern adds a given pattern to the bot's list of regexp expressions.
