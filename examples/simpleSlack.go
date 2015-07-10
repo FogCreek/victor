@@ -23,10 +23,7 @@ func main() {
 	addHandlers(bot)
 	// optional help built in help command
 	bot.EnableHelpCommand()
-	err := bot.Run()
-	if err != nil {
-		log.Println(err.Error())
-	}
+	bot.Run()
 	go monitorErrors(bot.ChatErrors())
 	// keep the process (and bot) alive
 	sigs := make(chan os.Signal, 1)
