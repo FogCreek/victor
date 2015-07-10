@@ -1,6 +1,7 @@
 package slackRealtime
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/FogCreek/slack"
 	"github.com/FogCreek/victor/pkg/chat"
+	"github.com/FogCreek/victor/pkg/events"
 )
 
 // TokenLength is the expected length of a Slack API auth token.
@@ -296,17 +298,20 @@ func (adapter *SlackAdapter) monitorEvents() {
 		event := <-adapter.rtm.IncomingEvents
 		switch e := event.Data.(type) {
 		case *slack.InvalidAuthEvent:
-			log.Println(adapter.token + " invalid")
+			adapter.robot.ChatErrors() <- &events.InvalidAuth{}
 		case *slack.ConnectingEvent:
 			log.Println(adapter.token + " connecting")
 		case *slack.ConnectedEvent:
 			log.Println(adapter.token + " connected")
 			adapter.initAdapterInfo(e.Info)
 		case *slack.SlackWSError:
-			log.Println("Slack Error: " + e.Error())
+			adapter.robot.ChatErrors() <- &events.BaseError{
+				ErrorObj: e,
+			}
 		case *slack.DisconnectedEvent:
-			// TODO handle disconnect
-			log.Println(adapter.token + " disconnected")
+			adapter.robot.ChatErrors() <- &events.BaseError{
+				ErrorObj: errors.New("disconnect"),
+			}
 		case *slack.MessageEvent:
 			go adapter.handleMessage(e)
 		case *slack.ChannelJoinedEvent:

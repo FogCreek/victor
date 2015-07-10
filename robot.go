@@ -8,7 +8,9 @@ import (
 	"strings"
 
 	"github.com/FogCreek/victor/pkg/chat"
+	"github.com/FogCreek/victor/pkg/events"
 	// Blank import used init adapters which registers them with victor
+	_ "github.com/FogCreek/victor/pkg/chat/shell"
 	_ "github.com/FogCreek/victor/pkg/chat/slackRealtime"
 	"github.com/FogCreek/victor/pkg/store"
 	// Blank import used init adapters which registers them with victor
@@ -34,6 +36,7 @@ type Robot interface {
 	Store() store.Adapter
 	AdapterConfig() (interface{}, bool)
 	StoreConfig() (interface{}, bool)
+	ChatErrors() chan events.ErrorEvent
 }
 
 // Config provides all of the configuration parameters needed in order to
@@ -56,6 +59,7 @@ type robot struct {
 	stop     chan struct{}
 	adapterConfig,
 	storeConfig interface{}
+	chatErrorChannel chan events.ErrorEvent
 }
 
 // New returns a robot
@@ -96,6 +100,7 @@ func New(config Config) *robot {
 		stop:     make(chan struct{}),
 	}
 
+	bot.chatErrorChannel = make(chan events.ErrorEvent)
 	bot.store = storeInitFunc(bot)
 	bot.adapterConfig = config.AdapterConfig
 	bot.dispatch = newDispatch(bot)
@@ -157,6 +162,10 @@ func (r *robot) AdapterConfig() (interface{}, bool) {
 
 func (r *robot) StoreConfig() (interface{}, bool) {
 	return r.storeConfig, r.storeConfig != nil
+}
+
+func (r *robot) ChatErrors() chan events.ErrorEvent {
+	return r.chatErrorChannel
 }
 
 // OnlyAllow provides a way of permitting specific users

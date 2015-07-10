@@ -7,18 +7,14 @@ import (
 	"os/signal"
 
 	"github.com/FogCreek/victor"
-	"github.com/FogCreek/victor/pkg/chat/slackRealtime"
-	"github.com/FogCreek/victor/pkg/events"
 )
 
-const SLACK_TOKEN = "SLACK_TOKEN"
-const BOT_NAME = "BOT_NAME"
+const BOT_NAME = "victor"
 
 func main() {
 	bot := victor.New(victor.Config{
-		ChatAdapter:   "slackRealtime",
-		AdapterConfig: slackRealtime.NewConfig(SLACK_TOKEN),
-		Name:          BOT_NAME,
+		ChatAdapter: "shell",
+		Name:        BOT_NAME,
 	})
 	addHandlers(bot)
 	// optional help built in help command
@@ -27,23 +23,12 @@ func main() {
 	if err != nil {
 		log.Println(err.Error())
 	}
-	go monitorErrors(bot.ChatErrors())
 	// keep the process (and bot) alive
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt)
 	<-sigs
 
 	bot.Stop()
-}
-
-func monitorErrors(errorChannel <-chan events.ErrorEvent) {
-	for {
-		err := <-errorChannel
-		if err.IsFatal() {
-			log.Panic(err.Error())
-		}
-		log.Println("Chat Adapter Error Event:", err.Error())
-	}
 }
 
 func addHandlers(r victor.Robot) {

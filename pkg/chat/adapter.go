@@ -3,6 +3,7 @@ package chat
 import (
 	"fmt"
 
+	"github.com/FogCreek/victor/pkg/events"
 	"github.com/FogCreek/victor/pkg/store"
 )
 
@@ -44,6 +45,7 @@ type Robot interface {
 	Chat() Adapter
 	Receive(Message)
 	AdapterConfig() (interface{}, bool)
+	ChatErrors() chan events.ErrorEvent
 }
 
 type Message interface {
