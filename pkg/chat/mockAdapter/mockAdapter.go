@@ -60,8 +60,8 @@ func (m *MockChatAdapter) Receive(mp chat.Message) {
 }
 
 // Run does nothing as the mockAdapter does not connect to anything.
-func (m *MockChatAdapter) Run() error {
-	return nil
+func (m *MockChatAdapter) Run() {
+	return
 }
 
 // Send stores the given channelID and text to the exported array "Sent" as

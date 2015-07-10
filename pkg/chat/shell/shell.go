@@ -51,7 +51,7 @@ type Adapter struct {
 	lines chan string
 }
 
-func (a *Adapter) Run() error {
+func (a *Adapter) Run() {
 	reader := bufio.NewReader(os.Stdin)
 
 	go func() {
@@ -66,7 +66,6 @@ func (a *Adapter) Run() error {
 		}
 	}()
 	go a.monitorEvents()
-	return nil
 }
 
 func (a *Adapter) monitorEvents() {

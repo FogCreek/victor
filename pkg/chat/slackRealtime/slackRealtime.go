@@ -152,13 +152,12 @@ func (adapter *SlackAdapter) NormalizeUserID(userID string) string {
 // Run starts the adapter and begins to listen for new messages to send/receive.
 // At the moment this will crash the program and print the error messages to a
 // log if the connection fails.
-func (adapter *SlackAdapter) Run() error {
+func (adapter *SlackAdapter) Run() {
 	adapter.instance = slack.New(adapter.token)
 	adapter.instance.SetDebug(false)
 	adapter.rtm = adapter.instance.NewRTM()
 	go adapter.monitorEvents()
 	go adapter.rtm.ManageConnection()
-	return nil
 }
 
 func (adapter *SlackAdapter) initAdapterInfo(info *slack.Info) {
@@ -294,22 +293,23 @@ func getEncodedUserID(userID string) string {
 // monitorEvents handles incoming events and filters them to only worry about
 // incoming messages.
 func (adapter *SlackAdapter) monitorEvents() {
+	errorChannel := adapter.robot.ChatErrors()
 	for {
 		event := <-adapter.rtm.IncomingEvents
 		switch e := event.Data.(type) {
 		case *slack.InvalidAuthEvent:
-			adapter.robot.ChatErrors() <- &events.InvalidAuth{}
+			errorChannel <- &events.InvalidAuth{}
 		case *slack.ConnectingEvent:
 			log.Println(adapter.token + " connecting")
 		case *slack.ConnectedEvent:
 			log.Println(adapter.token + " connected")
 			adapter.initAdapterInfo(e.Info)
 		case *slack.SlackWSError:
-			adapter.robot.ChatErrors() <- &events.BaseError{
+			errorChannel <- &events.BaseError{
 				ErrorObj: e,
 			}
 		case *slack.DisconnectedEvent:
-			adapter.robot.ChatErrors() <- &events.BaseError{
+			errorChannel <- &events.BaseError{
 				ErrorObj: errors.New("disconnect"),
 			}
 		case *slack.MessageEvent:
