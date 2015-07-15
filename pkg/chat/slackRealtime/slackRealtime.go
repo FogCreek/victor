@@ -1,7 +1,6 @@
 package slackRealtime
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -197,6 +196,7 @@ func (adapter *SlackAdapter) initAdapterInfo(info *slack.Info) {
 // Stop stops the adapter.
 // TODO implement
 func (adapter *SlackAdapter) Stop() {
+	adapter.rtm.Disconnect()
 }
 
 // ID returns a unique ID for this adapter. At the moment this just returns
@@ -225,19 +225,34 @@ func (adapter *SlackAdapter) getUserFromSlack(userID string) (*slack.User, error
 	return &user, nil
 }
 
+func (adapter *SlackAdapter) getChannel(channelID string) channelGroupInfo {
+	channel, exists := adapter.channelInfo[channelID]
+	if exists {
+		return channel
+	}
+	channelObj, err := adapter.rtm.GetChannelInfo(channelID)
+	if err != nil {
+		log.Printf("Unrecognized channel with ID %s", channelID)
+		return channelGroupInfo{
+			Name: "Unrecognized",
+			ID:   channelID,
+		}
+	}
+	info := channelGroupInfo{
+		ID:        channelObj.Id,
+		Name:      channelObj.Name,
+		IsChannel: true,
+	}
+	adapter.channelInfo[channelObj.Id] = info
+	return info
+}
+
 func (adapter *SlackAdapter) handleMessage(event *slack.MessageEvent) {
 	if len(event.SubType) > 0 {
 		return
 	}
 	user, _ := adapter.getUserFromSlack(event.UserId)
-	channel, exists := adapter.channelInfo[event.ChannelId]
-	if !exists {
-		log.Printf("Unrecognized channel with ID %s", event.Id)
-		channel = channelGroupInfo{
-			Name: "Unrecognized",
-			ID:   event.ChannelId,
-		}
-	}
+	channel := adapter.getChannel(event.ChannelId)
 	// TODO use error
 	if user != nil {
 		// ignore any messages that are sent by any bot
@@ -309,8 +324,8 @@ func (adapter *SlackAdapter) monitorEvents() {
 				ErrorObj: e,
 			}
 		case *slack.DisconnectedEvent:
-			errorChannel <- &events.BaseError{
-				ErrorObj: errors.New("disconnect"),
+			errorChannel <- &events.Disconnect{
+				Intentional: e.Intentional,
 			}
 		case *slack.MessageEvent:
 			go adapter.handleMessage(e)
@@ -332,6 +347,10 @@ func (adapter *SlackAdapter) monitorEvents() {
 			go adapter.userChanged(e.User)
 		case *slack.TeamJoinEvent:
 			go adapter.userChanged(*e.User)
+		case *slack.UnmarshallingErrorEvent:
+			errorChannel <- &events.BaseError{
+				ErrorObj: e.ErrorObj,
+			}
 		}
 	}
 }
@@ -357,7 +376,7 @@ func (adapter *SlackAdapter) joinedChannel(channel slack.Channel, isChannel bool
 
 func (adapter *SlackAdapter) joinedIM(event *slack.IMCreatedEvent) {
 	adapter.channelInfo[event.Channel.Id] = channelGroupInfo{
-		Name:   event.Channel.Name,
+		Name:   fmt.Sprintf("DM %s", event.Channel.Id),
 		ID:     event.Channel.Id,
 		IsDM:   true,
 		UserID: event.UserId,

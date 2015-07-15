@@ -135,7 +135,6 @@ func (r *robot) Run() {
 func (r *robot) Stop() {
 	r.chat.Stop()
 	close(r.stop)
-	close(r.chatErrorChannel)
 }
 
 // Name returns the name of the bot
