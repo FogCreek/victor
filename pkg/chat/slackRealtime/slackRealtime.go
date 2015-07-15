@@ -22,7 +22,7 @@ const AdapterName = "slackRealtime"
 // Prefix for the user's ID which is used when reading/writing from the bot's store
 const userInfoPrefix = AdapterName + "."
 
-const userIDRegexpString = "\\b<?@?(U[[:alnum:]]+)(?:(?:|\\S+)?>?)"
+const userIDRegexpString = `^<?@?(U[[:alnum:]]+)(?:(?:|\S+)?>?)`
 
 // Match "<@Userid>" and "<@UserID|fullname>"
 var userIDRegexp = regexp.MustCompile(userIDRegexpString)
