@@ -354,6 +354,7 @@ func (adapter *SlackAdapter) monitorEvents() {
 		case *slack.ConnectedEvent:
 			log.Println(adapter.token + " connected")
 			adapter.initAdapterInfo(e.Info)
+			eventChannel <- &definedEvents.ConnectedEvent{}
 		case *slack.SlackWSError:
 			errorChannel <- &events.BaseError{
 				ErrorObj: e,
