@@ -13,9 +13,7 @@ import (
 )
 
 const (
-	timeFormat  = "20060102150405"
-	channelID   = "shell_channel"
-	channelName = "shell channel"
+	timeFormat = "20060102150405"
 )
 
 var (
@@ -24,6 +22,10 @@ var (
 		UserName:  "[Shell User]",
 		UserEmail: "user@example.com",
 		UserIsBot: false,
+	}
+	defaultChannel = &chat.BaseChannel{
+		ChannelID:   "shell_channel",
+		ChannelName: "shell_channel",
 	}
 	nextID      = 0
 	nextIDMutex = &sync.Mutex{}
@@ -77,8 +79,7 @@ func (a *Adapter) monitorEvents() {
 			a.robot.Receive(&chat.BaseMessage{
 				MsgText:        string(line),
 				MsgUser:        realUser,
-				MsgChannelID:   channelID,
-				MsgChannelName: channelName,
+				MsgChannel:     defaultChannel,
 				MsgIsDirect:    true,
 				MsgArchiveLink: "",
 				MsgTimestamp:   time.Now().Format(timeFormat),
@@ -113,6 +114,14 @@ func (a *Adapter) GetUser(userID string) chat.User {
 		return realUser
 	}
 	return nil
+}
+
+func (a *Adapter) GetAllUsers() []chat.User {
+	return []chat.User{realUser}
+}
+
+func (a *Adapter) GetPublicChannels() []chat.Channel {
+	return []chat.Channel{defaultChannel}
 }
 
 func (a *Adapter) IsPotentialUser(userID string) bool {

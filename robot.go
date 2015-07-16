@@ -37,6 +37,7 @@ type Robot interface {
 	AdapterConfig() (interface{}, bool)
 	StoreConfig() (interface{}, bool)
 	ChatErrors() chan events.ErrorEvent
+	ChatEvents() chan events.ChatEvent
 }
 
 // Config provides all of the configuration parameters needed in order to
@@ -60,6 +61,7 @@ type robot struct {
 	adapterConfig,
 	storeConfig interface{}
 	chatErrorChannel chan events.ErrorEvent
+	chatEventChannel chan events.ChatEvent
 }
 
 // New returns a robot
@@ -95,14 +97,15 @@ func New(config Config) *robot {
 	}
 
 	bot := &robot{
-		name:     botName,
-		incoming: make(chan chat.Message),
-		stop:     make(chan struct{}),
+		name:             botName,
+		incoming:         make(chan chat.Message),
+		stop:             make(chan struct{}),
+		chatErrorChannel: make(chan events.ErrorEvent),
+		chatEventChannel: make(chan events.ChatEvent),
+		adapterConfig:    config.AdapterConfig,
 	}
 
-	bot.chatErrorChannel = make(chan events.ErrorEvent)
 	bot.store = storeInitFunc(bot)
-	bot.adapterConfig = config.AdapterConfig
 	bot.dispatch = newDispatch(bot)
 	bot.chat = chatInitFunc(bot)
 	return bot
@@ -164,6 +167,10 @@ func (r *robot) ChatErrors() chan events.ErrorEvent {
 	return r.chatErrorChannel
 }
 
+func (r *robot) ChatEvents() chan events.ChatEvent {
+	return r.chatEventChannel
+}
+
 // OnlyAllow provides a way of permitting specific users
 // to execute a handler registered with the bot
 func OnlyAllow(userNames []string, action func(s State)) func(State) {
@@ -176,6 +183,6 @@ func OnlyAllow(userNames []string, action func(s State)) func(State) {
 			}
 		}
 
-		s.Chat().Send(s.Message().ChannelID(), fmt.Sprintf("Sorry, %s. I can't let you do that.", actual))
+		s.Chat().Send(s.Message().Channel().ID(), fmt.Sprintf("Sorry, %s. I can't let you do that.", actual))
 	}
 }

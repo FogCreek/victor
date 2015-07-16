@@ -378,7 +378,7 @@ func defaultHelpHandler(s State, d *dispatch) {
 
 func showAllCommands(s State, d *dispatch) {
 	if len(d.commandNames) == 0 {
-		s.Chat().Send(s.Message().ChannelID(), "No commands have been set!")
+		s.Chat().Send(s.Message().Channel().ID(), "No commands have been set!")
 		return
 	}
 	var buf bytes.Buffer
@@ -396,7 +396,7 @@ func showAllCommands(s State, d *dispatch) {
 		buf.WriteString("_\n")
 	}
 	buf.WriteString("\nFor help with a command, type `help [command name]`.")
-	s.Chat().Send(s.Message().ChannelID(), buf.String())
+	s.Chat().Send(s.Message().Channel().ID(), buf.String())
 }
 
 func showCommandHelp(s State, d *dispatch) {
@@ -409,7 +409,7 @@ func showCommandHelp(s State, d *dispatch) {
 		docPair = d.findCommandRegexp(cmdName)
 		if docPair == nil {
 			textFmt := "Unrecognized command _%s_.  Type *`help`* to view a list of all available commands."
-			s.Chat().Send(s.Message().ChannelID(), fmt.Sprintf(textFmt, cmdName))
+			s.Chat().Send(s.Message().Channel().ID(), fmt.Sprintf(textFmt, cmdName))
 			return
 		}
 	}
@@ -426,7 +426,7 @@ func showCommandHelp(s State, d *dispatch) {
 		buf.WriteString(use)
 		buf.WriteString("\n")
 	}
-	s.Chat().Send(s.Message().ChannelID(), buf.String())
+	s.Chat().Send(s.Message().Channel().ID(), buf.String())
 }
 
 var quoteCharacters = &unicode.RangeTable{

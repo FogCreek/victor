@@ -10,6 +10,7 @@ import (
 	"github.com/FogCreek/slack"
 	"github.com/FogCreek/victor/pkg/chat"
 	"github.com/FogCreek/victor/pkg/events"
+	"github.com/FogCreek/victor/pkg/events/definedEvents"
 )
 
 // TokenLength is the expected length of a Slack API auth token.
@@ -39,8 +40,8 @@ type channelGroupInfo struct {
 	Name      string
 	ID        string
 	IsDM      bool
-	UserID    string
 	IsChannel bool
+	UserID    string
 	// UserID is only stored for IM/DM's so we can then send a user a DM as a
 	// response if needed
 }
@@ -127,6 +128,37 @@ func (adapter *SlackAdapter) GetUser(userIDStr string) chat.User {
 		UserEmail: userObj.Profile.Email,
 		UserIsBot: userObj.IsBot,
 	}
+}
+
+// GetAllUsers returns a slice of all user objects that are known to the
+// chatbot. This does not perform a slack API call as all users should be
+// stored locally and any new users will be added upon a team join event.
+func (adapter *SlackAdapter) GetAllUsers() []chat.User {
+	var users []chat.User
+	for _, u := range adapter.userInfo {
+		users = append(users, &chat.BaseUser{
+			UserID:    u.Id,
+			UserName:  u.Name,
+			UserEmail: u.Profile.Email,
+			UserIsBot: u.IsBot,
+		})
+	}
+	return users
+}
+
+// GetPublicChannels returns a slice of all channels that are known to the
+// chatbot.
+func (adapter *SlackAdapter) GetPublicChannels() []chat.Channel {
+	var channels []chat.Channel
+	for _, c := range adapter.channelInfo {
+		if c.IsChannel {
+			channels = append(channels, &chat.BaseChannel{
+				ChannelID:   c.ID,
+				ChannelName: c.Name,
+			})
+		}
+	}
+	return channels
 }
 
 // IsPotentialUser checks if a given string is potentially referring to a slack
@@ -272,9 +304,11 @@ func (adapter *SlackAdapter) handleMessage(event *slack.MessageEvent) {
 				UserName:  user.Name,
 				UserEmail: user.Profile.Email,
 			},
+			MsgChannel: &chat.BaseChannel{
+				ChannelID:   channel.ID,
+				ChannelName: channel.Name,
+			},
 			MsgText:        messageText,
-			MsgChannelID:   channel.ID,
-			MsgChannelName: channel.Name,
 			MsgIsDirect:    channel.IsDM,
 			MsgTimestamp:   strings.SplitN(event.Timestamp, ".", 2)[0],
 			MsgArchiveLink: archiveLink,
@@ -309,11 +343,12 @@ func getEncodedUserID(userID string) string {
 // incoming messages.
 func (adapter *SlackAdapter) monitorEvents() {
 	errorChannel := adapter.robot.ChatErrors()
+	eventChannel := adapter.robot.ChatEvents()
 	for {
 		event := <-adapter.rtm.IncomingEvents
 		switch e := event.Data.(type) {
 		case *slack.InvalidAuthEvent:
-			errorChannel <- &events.InvalidAuth{}
+			errorChannel <- &definedEvents.InvalidAuth{}
 		case *slack.ConnectingEvent:
 			log.Println(adapter.token + " connecting")
 		case *slack.ConnectedEvent:
@@ -324,19 +359,33 @@ func (adapter *SlackAdapter) monitorEvents() {
 				ErrorObj: e,
 			}
 		case *slack.DisconnectedEvent:
-			errorChannel <- &events.Disconnect{
+			errorChannel <- &definedEvents.Disconnect{
 				Intentional: e.Intentional,
 			}
 		case *slack.MessageEvent:
 			go adapter.handleMessage(e)
 		case *slack.ChannelJoinedEvent:
 			go adapter.joinedChannel(e.Channel, true)
+			eventChannel <- &definedEvents.ChannelEvent{
+				Channel: &chat.BaseChannel{
+					ChannelName: e.Channel.Name,
+					ChannelID:   e.Channel.Id,
+				},
+				WasRemoved: false,
+			}
 		case *slack.GroupJoinedEvent:
 			go adapter.joinedChannel(e.Channel, false)
 		case *slack.IMCreatedEvent:
 			go adapter.joinedIM(e)
 		case *slack.ChannelLeftEvent:
 			go adapter.leftChannel(e.ChannelId)
+			eventChannel <- &definedEvents.ChannelEvent{
+				Channel: &chat.BaseChannel{
+					ChannelName: e.ChannelId,
+					ChannelID:   e.ChannelId,
+				},
+				WasRemoved: true,
+			}
 		case *slack.GroupLeftEvent:
 			go adapter.leftChannel(e.ChannelId)
 		case *slack.IMCloseEvent:
@@ -347,6 +396,15 @@ func (adapter *SlackAdapter) monitorEvents() {
 			go adapter.userChanged(e.User)
 		case *slack.TeamJoinEvent:
 			go adapter.userChanged(*e.User)
+			eventChannel <- &definedEvents.UserEvent{
+				User: &chat.BaseUser{
+					UserID:    e.User.Id,
+					UserName:  e.User.Name,
+					UserEmail: e.User.Profile.Email,
+					UserIsBot: e.User.IsBot,
+				},
+				WasRemoved: false,
+			}
 		case *slack.UnmarshallingErrorEvent:
 			errorChannel <- &events.BaseError{
 				ErrorObj: e.ErrorObj,

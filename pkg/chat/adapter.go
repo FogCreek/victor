@@ -37,6 +37,8 @@ type Adapter interface {
 	GetUser(string) User
 	IsPotentialUser(string) bool
 	NormalizeUserID(string) string
+	GetAllUsers() []User
+	GetPublicChannels() []Channel
 }
 
 type Robot interface {
@@ -46,12 +48,12 @@ type Robot interface {
 	Receive(Message)
 	AdapterConfig() (interface{}, bool)
 	ChatErrors() chan events.ErrorEvent
+	ChatEvents() chan events.ChatEvent
 }
 
 type Message interface {
 	User() User
-	ChannelID() string
-	ChannelName() string
+	Channel() Channel
 	Text() string
 	IsDirectMessage() bool
 	ArchiveLink() string
@@ -63,4 +65,9 @@ type User interface {
 	Name() string
 	EmailAddress() string
 	IsBot() bool
+}
+
+type Channel interface {
+	Name() string
+	ID() string
 }

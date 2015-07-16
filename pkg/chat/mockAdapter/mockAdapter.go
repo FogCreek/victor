@@ -2,18 +2,34 @@ package mockAdapter
 
 import (
 	"strconv"
+	"sync"
 
 	"github.com/FogCreek/victor/pkg/chat"
 )
 
-var nextID = 0
+var (
+	nextID         = 0
+	nextIDMutex    = &sync.Mutex{}
+	defaultUserRet = &chat.BaseUser{
+		UserName:  "Fake User",
+		UserID:    "UFakeUser",
+		UserIsBot: false,
+		UserEmail: "fake@example.com",
+	}
+	defaultChannelRet = &chat.BaseChannel{
+		Name: "Fake Channel",
+		ID:   "CFakeChannel",
+	}
+)
 
 // init Registers the mockAdapter with the victor framework under the chat
 // adapter name "mockAdapter".
 func init() {
 	chat.Register("mockAdapter", func(r chat.Robot) chat.Adapter {
+		nextIDMutex.Lock()
 		id := nextID
 		nextID++
+		nextIDMutex.Unlock()
 		return &MockChatAdapter{
 			robot:              r,
 			id:                 strconv.Itoa(id),
@@ -22,12 +38,9 @@ func init() {
 			SentDirect:         make([]MockMessagePair, 0, 10),
 			IsPotentialUserRet: true,
 			NormalizeUserIDRet: "",
-			UserRet: &chat.BaseUser{
-				UserName:  "Fake User",
-				UserID:    "UFakeUser",
-				UserIsBot: false,
-				UserEmail: "fake@example.com",
-			},
+			UserRet:            defaultUserRet,
+			AllUsersRet:        []chat.User{defaultUserRet},
+			PublicChannelsRet:  []chat.Channel{defaultChannelRet},
 		}
 	})
 }
@@ -43,6 +56,8 @@ type MockChatAdapter struct {
 	SentPublic,
 	SentDirect []MockMessagePair
 	UserRet            chat.User
+	AllUsersRet        []chat.User
+	PublicChannelsRet  []chat.Channel
 	IsPotentialUserRet bool
 	NormalizeUserIDRet string
 }
@@ -113,6 +128,14 @@ func (m *MockChatAdapter) ID() string {
 // set to any chat.User instance (default value has full name "Fake User").
 func (m *MockChatAdapter) GetUser(string) chat.User {
 	return m.UserRet
+}
+
+func (m *MockChatAdapter) GetAllUsers() []chat.User {
+	return m.AllUsersRet
+}
+
+func (m *MockChatAdapter) GetPublicChannels() []Channel {
+	return m.PublicChannelsRet
 }
 
 // IsPotentialUser returns the mockAdapter's set "IsPotentialUserRet" property

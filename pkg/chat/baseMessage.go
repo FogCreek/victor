@@ -5,8 +5,7 @@ package chat
 // in its Messages.
 type BaseMessage struct {
 	MsgUser        User
-	MsgChannelID   string
-	MsgChannelName string
+	MsgChannel     Channel
 	MsgText        string
 	MsgIsDirect    bool
 	MsgArchiveLink string
@@ -18,14 +17,9 @@ func (m *BaseMessage) User() User {
 	return m.MsgUser
 }
 
-// ChannelID gets the message's channel ID.
-func (m *BaseMessage) ChannelID() string {
-	return m.MsgChannelID
-}
-
-// ChannelName gets the message's channel name.
-func (m *BaseMessage) ChannelName() string {
-	return m.MsgChannelName
+// Channel gets the message's channel object.
+func (m *BaseMessage) Channel() Channel {
+	return m.MsgChannel
 }
 
 // Text gets the channel's text.
