@@ -17,8 +17,8 @@ var (
 		UserEmail: "fake@example.com",
 	}
 	defaultChannelRet = &chat.BaseChannel{
-		Name: "Fake Channel",
-		ID:   "CFakeChannel",
+		ChannelName: "Fake Channel",
+		ChannelID:   "CFakeChannel",
 	}
 )
 
@@ -134,7 +134,7 @@ func (m *MockChatAdapter) GetAllUsers() []chat.User {
 	return m.AllUsersRet
 }
 
-func (m *MockChatAdapter) GetPublicChannels() []Channel {
+func (m *MockChatAdapter) GetPublicChannels() []chat.Channel {
 	return m.PublicChannelsRet
 }
 
