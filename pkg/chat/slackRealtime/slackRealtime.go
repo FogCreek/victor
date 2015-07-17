@@ -367,28 +367,14 @@ func (adapter *SlackAdapter) monitorEvents() {
 			go adapter.handleMessage(e)
 		case *slack.ChannelJoinedEvent:
 			go adapter.joinedChannel(e.Channel, true)
-			eventChannel <- &definedEvents.ChannelEvent{
-				Channel: &chat.BaseChannel{
-					ChannelName: e.Channel.Name,
-					ChannelID:   e.Channel.Id,
-				},
-				WasRemoved: false,
-			}
 		case *slack.GroupJoinedEvent:
 			go adapter.joinedChannel(e.Channel, false)
 		case *slack.IMCreatedEvent:
 			go adapter.joinedIM(e)
 		case *slack.ChannelLeftEvent:
-			go adapter.leftChannel(e.ChannelId)
-			eventChannel <- &definedEvents.ChannelEvent{
-				Channel: &chat.BaseChannel{
-					ChannelName: e.ChannelId,
-					ChannelID:   e.ChannelId,
-				},
-				WasRemoved: true,
-			}
+			go adapter.leftChannel(e.ChannelId, true)
 		case *slack.GroupLeftEvent:
-			go adapter.leftChannel(e.ChannelId)
+			go adapter.leftChannel(e.ChannelId, false)
 		case *slack.IMCloseEvent:
 			go adapter.leftIM(e)
 		case *slack.TeamDomainChangeEvent:
@@ -431,6 +417,15 @@ func (adapter *SlackAdapter) joinedChannel(channel slack.Channel, isChannel bool
 		ID:        channel.Id,
 		IsChannel: isChannel,
 	}
+	if isChannel {
+		adapter.robot.ChatEvents() <- &definedEvents.ChannelEvent{
+			Channel: &chat.BaseChannel{
+				ChannelName: channel.Name,
+				ChannelID:   channel.Id,
+			},
+			WasRemoved: false,
+		}
+	}
 }
 
 func (adapter *SlackAdapter) joinedIM(event *slack.IMCreatedEvent) {
@@ -444,12 +439,22 @@ func (adapter *SlackAdapter) joinedIM(event *slack.IMCreatedEvent) {
 }
 
 func (adapter *SlackAdapter) leftIM(event *slack.IMCloseEvent) {
-	adapter.leftChannel(event.ChannelId)
+	adapter.leftChannel(event.ChannelId, false)
 	delete(adapter.directMessageID, event.UserId)
 }
 
-func (adapter *SlackAdapter) leftChannel(channelID string) {
+func (adapter *SlackAdapter) leftChannel(channelID string, isChannel bool) {
+	channelName := adapter.channelInfo[channelID].Name
 	delete(adapter.channelInfo, channelID)
+	if isChannel {
+		adapter.robot.ChatEvents() <- &definedEvents.ChannelEvent{
+			Channel: &chat.BaseChannel{
+				ChannelName: channelName,
+				ChannelID:   channelID,
+			},
+			WasRemoved: true,
+		}
+	}
 }
 
 // Send sends a message to the given slack channel.
