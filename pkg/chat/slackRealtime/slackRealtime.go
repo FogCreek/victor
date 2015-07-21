@@ -24,7 +24,7 @@ const (
 	// archiveURLFormat defines a printf-style format string for building
 	// archive links centered around a message using the slack instance's
 	// team name, the channel name, and the message's timestamp.
-	archiveURLFormat = "http://%s.slack.com/archives/%s/p%s"
+	archiveURLFormat = "https://%s.slack.com/archives/%s/p%s"
 )
 
 var (
