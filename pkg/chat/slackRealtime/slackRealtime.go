@@ -13,23 +13,32 @@ import (
 	"github.com/FogCreek/victor/pkg/events/definedEvents"
 )
 
-// TokenLength is the expected length of a Slack API auth token.
-const TokenLength = 40
+const (
+	// TokenLength is the expected length of a Slack API auth token.
+	TokenLength = 40
 
-// The Slack Websocket's registered adapter name for the victor framework.
-const AdapterName = "slackRealtime"
+	// AdapterName is the Slack Websocket's registered adapter name for the
+	// victor framework.
+	AdapterName = "slackRealtime"
 
-// Prefix for the user's ID which is used when reading/writing from the bot's store
-const userInfoPrefix = AdapterName + "."
+	// archiveURLFormat defines a printf-style format string for building
+	// archive links centered around a message using the slack instance's
+	// team name, the channel name, and the message's timestamp.
+	archiveURLFormat = "http://%s.slack.com/archives/%s/p%s"
+)
 
-const userIDRegexpString = `^<?@?(U[[:alnum:]]+)(?:(?:|\S+)?>?)`
+var (
+	// Match "<@Userid>" and "<@UserID|fullname>"
+	userIDRegexp = regexp.MustCompile(`^<@(U[[:alnum:]]+)(?:(?:|\S+)?>)`)
 
-// Match "<@Userid>" and "<@UserID|fullname>"
-var userIDRegexp = regexp.MustCompile(userIDRegexpString)
+	// Should match all formatted slack inputs and have a capturing group of
+	// the desired value from the formatted group.
+	formattingRegexp = regexp.MustCompile(`<(?:mailto\:)?([^\|>]+)\|?[^>]*>`)
 
-// Match "johndoe", "@johndoe",
-// not needed?
-// var userIDAndNameRegexp = regexp.MustCompile("\\A@?(\\w+)|" + userIDRegexpString)
+	// If a message part starts with any of these prefixes (case sensitive)
+	// then it should not be unformatted by "unescapeMessage".
+	unformattedPrefixes = []string{"@U", "#C", "!"}
+)
 
 // channelGroupInfo is used instead of the slack library's Channel struct since we
 // are trying to consider channels and groups to be roughly the same while it
@@ -94,16 +103,17 @@ func (c configImpl) Token() string {
 
 // SlackAdapter holds all information needed by the adapter to send/receive messages.
 type SlackAdapter struct {
-	robot           chat.Robot
-	token           string
-	instance        *slack.Client
-	rtm             *slack.RTM
-	chReceiver      chan slack.SlackEvent
-	channelInfo     map[string]channelGroupInfo
-	directMessageID map[string]string
-	userInfo        map[string]slack.User
-	domain          string
-	botID           string
+	robot            chat.Robot
+	token            string
+	instance         *slack.Client
+	rtm              *slack.RTM
+	chReceiver       chan slack.SlackEvent
+	channelInfo      map[string]channelGroupInfo
+	directMessageID  map[string]string
+	userInfo         map[string]slack.User
+	domain           string
+	botID            string
+	formattedSlackID string
 }
 
 // GetUser will parse the given user ID string and then return the user's
@@ -193,6 +203,7 @@ func (adapter *SlackAdapter) Run() {
 
 func (adapter *SlackAdapter) initAdapterInfo(info *slack.Info) {
 	// info := adapter.rtm.GetInfo()
+	adapter.formattedSlackID = fmt.Sprintf("<@%s>", info.User.Id)
 	adapter.botID = info.User.Id
 	adapter.domain = info.Team.Domain
 	for _, channel := range info.Channels {
@@ -317,26 +328,49 @@ func (adapter *SlackAdapter) handleMessage(event *slack.MessageEvent) {
 	}
 }
 
-const archiveURLFormat = "http://%s.slack.com/archives/%s/p%s"
-
 func (adapter *SlackAdapter) getArchiveLink(channelName, timestamp string) string {
 	return fmt.Sprintf(archiveURLFormat, adapter.domain, channelName, strings.Replace(timestamp, ".", "", 1))
 }
 
-// Replace all instances of the bot's encoded name with it's actual name.
+// Fix formatting on incoming slack messages.
 //
-// TODO might want to handle unescaping emails and urls here
+// This will also check if the message starts with the bot's user id. If it
+// does then it replaces it with the text version of the bot's name
+// (ex: "@victor") so the victor dispatch can recognize it as being directed
+// at the bot.
 func (adapter *SlackAdapter) unescapeMessage(msg string) string {
-	userID := getEncodedUserID(adapter.botID)
-	if strings.HasPrefix(msg, userID) {
-		return strings.Replace(msg, userID, "@"+adapter.robot.Name(), 1)
+	// special case for starting with the bot's name
+	// could replace all instances of bot's name but we only care about the
+	// first one and all subsequent occurrences will be in the same format
+	// as other user names.
+	if strings.HasPrefix(msg, adapter.formattedSlackID) {
+		msg = "@" + adapter.robot.Name() + msg[len(adapter.formattedSlackID):]
+	}
+	// find all formatted parts of the message
+	matches := formattingRegexp.FindAllStringSubmatch(msg, -1)
+	for _, match := range matches {
+		if shouldUnformat(match[1]) {
+			// replace the full formatted string part with the captured value
+			// from the "formattingRegexp" regex
+			msg = strings.Replace(msg, match[0], match[1], 1)
+		}
 	}
 	return msg
 }
 
-// Returns the encoded string version of a user's slack ID.
-func getEncodedUserID(userID string) string {
-	return fmt.Sprintf("<@%s>", userID)
+// shouldUnformat checks if a given formatted string from slack should be
+// unformatted (remove brackets and optional pipe with name). This uses the
+// "unformattedPrefixes" array and checks if the given string starts with one
+// of those defined prefixes. If it does, then it should not be unformatted and
+// this will return false. Otherwise this will return true but not perform the
+// unformatting.
+func shouldUnformat(part string) bool {
+	for _, s := range unformattedPrefixes {
+		if strings.HasPrefix(part, s) {
+			return false
+		}
+	}
+	return true
 }
 
 // monitorEvents handles incoming events and filters them to only worry about
