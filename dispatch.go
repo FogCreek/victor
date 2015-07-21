@@ -30,6 +30,8 @@ type HandlerDocPair interface {
 	Description() string
 	Usage() []string
 	IsHidden() bool
+	AliasNames() []string
+	AddAliasName(string) bool
 }
 
 // HandlerDoc provides a base implementation of the HandlerDocPair interface.
@@ -40,6 +42,7 @@ type HandlerDoc struct {
 	CmdUsage       []string
 	CmdIsHidden    bool
 	cmdRegexp      *regexp.Regexp
+	cmdAliasNames  []string
 }
 
 // IsHidden returns true if this command should be hidden from the help list of
@@ -83,6 +86,35 @@ func (d *HandlerDoc) Usage() []string {
 	return d.CmdUsage
 }
 
+// AliasNames returns a sorted copy of the internal alias names slice. The
+// returned slice is safe to modify and will never be nil although it could be
+// a zero-length slice.
+func (d *HandlerDoc) AliasNames() []string {
+	aliasNamesCopy := make([]string, len(d.cmdAliasNames))
+	copy(aliasNamesCopy, d.cmdAliasNames)
+	return aliasNamesCopy
+}
+
+// AddAliasName adds a given alias name in sorted order to the internal alias
+// names slice. This does not actually affect the dispatch and is only used
+// for help text and to determine if an alias name has already been added.
+//
+// This returns true if the alias name was added and false if the given alias
+// name is already set. This is case sensitive.
+func (d *HandlerDoc) AddAliasName(aliasName string) bool {
+	if d.cmdAliasNames == nil {
+		d.cmdAliasNames = make([]string, 0, 1)
+	}
+	// binary search through sorted array to see if the alias name alraedy
+	// exists
+	pos := sort.SearchStrings(d.cmdAliasNames, aliasName)
+	if len(d.cmdAliasNames) > 0 && pos < len(d.cmdAliasNames) && d.cmdAliasNames[pos] == aliasName {
+		return false
+	}
+	d.cmdAliasNames = appendInOrderWithoutRepeats(d.cmdAliasNames, aliasName)
+	return true
+}
+
 // Set up base default help handler. Before use a copy msut be made and the
 // CmdHandler property must be set.
 var defaultHelpHandlerDoc = HandlerDoc{
@@ -122,16 +154,35 @@ type dispatch struct {
 	botNameRegex   *regexp.Regexp
 }
 
+// newDispatch returns a new *dispatch instance which matches all message
+// routing methods specified in the victor.Robot interface.
 func newDispatch(bot Robot) *dispatch {
 	return &dispatch{
 		robot:          bot,
 		defaultHandler: nil,
 		commands:       make(map[string]HandlerDocPair),
-		regexpCommands: make([]HandlerDocPair, 0, 10),
-		commandNames:   make([]string, 0, 10),
-		patterns:       make([]HandlerRegExpPair, 0, 10),
 		botNameRegex:   regexp.MustCompile(fmt.Sprintf(botNameRegexFormat, bot.Name())),
 	}
+}
+
+// appendInOrderWithoutRepeats functions identically to the built-in "append"
+// function except that it adds the given string in sorted order and will not
+// add duplicates.
+//
+// This is safe to call with a nil array and is case sensitive.
+func appendInOrderWithoutRepeats(array []string, toAdd string) []string {
+	// find the insert using a binary search
+	pos := sort.SearchStrings(array, toAdd)
+	// check if we should add it
+	if pos == len(array) || array[pos] != toAdd {
+		// make space
+		array = append(array, "")
+		// move over existing data
+		copy(array[pos+1:], array[pos:])
+		// insert new element
+		array[pos] = toAdd
+	}
+	return array
 }
 
 // Commands returns a copy of the internal commands map.
@@ -168,16 +219,18 @@ func (d *dispatch) HandleCommand(cmd HandlerDocPair) {
 	if _, exists := d.commands[lowerName]; exists {
 		log.Printf("\"%s\" has been set more than once.", lowerName)
 	}
-	d.commands[lowerName] = cmd
-	pos := sort.SearchStrings(d.commandNames, lowerName)
-	if pos == len(d.commandNames) || d.commandNames[pos] != lowerName {
-		d.commandNames = append(d.commandNames, "")
-		copy(d.commandNames[pos+1:], d.commandNames[pos:])
-		d.commandNames[pos] = lowerName
+	newCmd := &HandlerDoc{
+		CmdHandler:     cmd.Handler(),
+		CmdName:        cmd.Name(),
+		CmdDescription: cmd.Description(),
+		CmdUsage:       cmd.Usage(),
+		CmdIsHidden:    cmd.IsHidden(),
 	}
+	d.commands[lowerName] = newCmd
+	d.commandNames = appendInOrderWithoutRepeats(d.commandNames, lowerName)
 }
 
-// HandleCommandPatternadds a given pattern to the bot's list of regexp
+// HandleCommandPattern adds a given pattern to the bot's list of regexp
 // commands. This is equivalent to calling HandleCommandRegexp but with a
 // non-compiled regular expression.
 //
@@ -208,16 +261,90 @@ func (d *dispatch) HandleCommandRegexp(exp *regexp.Regexp, cmd HandlerDocPair) {
 		cmdRegexp:      exp,
 	}
 	d.regexpCommands = append(d.regexpCommands, newCmd)
-	pos := sort.SearchStrings(d.commandNames, lowerName)
-	if pos == len(d.commandNames) || d.commandNames[pos] != lowerName {
-		d.commandNames = append(d.commandNames, "")
-		copy(d.commandNames[pos+1:], d.commandNames[pos:])
-		d.commandNames[pos] = lowerName
-	}
+	d.commandNames = appendInOrderWithoutRepeats(d.commandNames, lowerName)
 }
 
-func (d *dispatch) commandNameIsDefined(lowerName string) {
+// HandleCommandAlias registers a given alias command name to the given
+// existing command name. This will silently fail and output a log message
+// if the given original command name does not exist or the new alias command
+// name is equal to the original command name or the new alias command name is
+// already set for the original command.
+//
+// This is equivalent to calling "HandleCommand" again for the alias command
+// with the same documentation as the original command although this also
+// registers the alias name with the original HandlerDocPair for help text
+// purposes.
+func (d *dispatch) HandleCommandAlias(originalName, aliasName string) {
+	lowerOrigName := strings.ToLower(originalName)
+	doc, exists := d.commands[lowerOrigName]
+	if !exists {
+		log.Printf(`Cannot add alias for unset command "%s"`, lowerOrigName)
+		return
+	} else if strings.ToLower(originalName) == strings.ToLower(aliasName) {
+		log.Printf(`A command cannot alias itself (command %s)`, lowerOrigName)
+		return
+	} else if !doc.AddAliasName(aliasName) {
+		log.Printf(`Alias "%s" for original command "%s" already exists`, aliasName, lowerOrigName)
+		return
+	}
+	newDoc := &HandlerDoc{
+		CmdName:        aliasName,
+		CmdIsHidden:    true,
+		CmdHandler:     doc.Handler(),
+		CmdDescription: doc.Description(),
+		CmdUsage:       doc.Usage(),
+	}
+	d.HandleCommand(newDoc)
+}
 
+// HandleCommandAliasPattern adds a given pattern to the given commands aliases.
+// This is equivalent to calling HandleCommandAliasRegexp but with a
+// non-compiled regular expression.
+//
+// This uses regexp.MustCompile so it panics if given an invalid regular
+// expression.
+func (d *dispatch) HandleCommandAliasPattern(originalName, aliasName string, pattern string) {
+	d.HandleCommandAliasRegexp(originalName, aliasName, regexp.MustCompile(pattern))
+}
+
+// HandleCommandAliasRegexp registers a given alias regexp to the given
+// existing command name. This will silently fail and output a log message
+// if the given original command name does not exist or the given regexp is nil.
+// This will succeed but log a message if the given aliasName is already set.
+//
+// This is equivalent to calling "HandleCommandRegexp" again for the alias
+// command regexp with the same documentation as the original command although
+// this also registers the alias name with the original HandlerDocPair for
+// help text purposes.
+//
+// The "aliasName" (second) parameter is used in order to list the alias in the
+// help text for the original command. If this should be a "silent" (unlisted)
+// alias then call this with the "aliasName" parameter as an empty string ("")
+// and it will not be added.
+func (d *dispatch) HandleCommandAliasRegexp(originalName, aliasName string, exp *regexp.Regexp) {
+	if exp == nil {
+		log.Println("Cannot add nil regular expression.")
+		return
+	}
+	lowerOrigName := strings.ToLower(originalName)
+	doc, exists := d.commands[lowerOrigName]
+	if !exists {
+		log.Printf(`Cannot add alias for unset command "%s"`, lowerOrigName)
+		return
+	}
+	if len(aliasName) > 0 && !doc.AddAliasName(aliasName) {
+		log.Printf(
+			`Alias "%s" for original command "%s" already exists - regexp was still added`,
+			aliasName, lowerOrigName)
+	}
+	newDoc := &HandlerDoc{
+		CmdName:        aliasName,
+		CmdIsHidden:    true,
+		CmdHandler:     doc.Handler(),
+		CmdDescription: doc.Description(),
+		CmdUsage:       doc.Usage(),
+	}
+	d.HandleCommandRegexp(exp, newDoc)
 }
 
 // HandlePattern adds a given pattern to the bot's list of regexp expressions.
@@ -237,7 +364,7 @@ func (d *dispatch) HandlePattern(pattern string, handler HandlerFunc) {
 // evaluated in the order of insertion.
 func (d *dispatch) HandleRegexp(exp *regexp.Regexp, handler HandlerFunc) {
 	if exp == nil {
-		log.Panicln("Cannot add nil regular expression.")
+		log.Println("Cannot add nil regular expression.")
 		return
 	}
 	d.patterns = append(d.patterns, &handlerPair{
@@ -342,6 +469,11 @@ func (d *dispatch) matchCommandRegexp(m chat.Message, messageText, commandName s
 
 }
 
+// findCommandRegexp searches the dispatch's internal slice of regexpCommands
+// by attempting to match the given string to all registered regexp commands.
+// It does this by performing a linear search through the slice and therefore
+// searches in order of insertion. This is safe to call if the internal slice
+// of command regexps is nil.
 func (d *dispatch) findCommandRegexp(commandPart string) HandlerDocPair {
 	for _, cmd := range d.regexpCommands {
 		if cmd.Regexp().MatchString(commandPart) {
@@ -414,17 +546,30 @@ func showCommandHelp(s State, d *dispatch) {
 		}
 	}
 	var buf bytes.Buffer
-	buf.WriteString("*")
-	buf.WriteString(docPair.Name())
-	buf.WriteString("* - _")
-	buf.WriteString(docPair.Description())
-	buf.WriteString("_\n\n")
-	buf.WriteString(">>>")
-	for _, use := range docPair.Usage() {
-		buf.WriteString(docPair.Name())
-		buf.WriteString(" ")
-		buf.WriteString(use)
-		buf.WriteString("\n")
+	buf.WriteString(fmt.Sprintf("*%s*", cmdName))
+	if len(docPair.Description()) > 0 {
+		buf.WriteString(fmt.Sprintf(" - _%s_", docPair.Description()))
+	}
+	buf.WriteString("\n\n")
+	aliasNames := docPair.AliasNames()
+	if len(aliasNames) > 0 {
+		buf.WriteString("Alias: _")
+		for i := range aliasNames {
+			buf.WriteString(aliasNames[i])
+			if i+1 < len(aliasNames) {
+				buf.WriteString(", ")
+			}
+		}
+		buf.WriteString("_\n")
+	}
+	if len(docPair.Usage()) > 0 {
+		buf.WriteString(">>>")
+		for _, use := range docPair.Usage() {
+			buf.WriteString(cmdName)
+			buf.WriteString(" ")
+			buf.WriteString(use)
+			buf.WriteString("\n")
+		}
 	}
 	s.Chat().Send(s.Message().Channel().ID(), buf.String())
 }

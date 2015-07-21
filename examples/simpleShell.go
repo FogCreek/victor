@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 
@@ -21,6 +22,7 @@ func main() {
 	bot.EnableHelpCommand()
 	bot.Run()
 	go monitorErrors(bot.ChatErrors())
+	go monitorEvents(bot.ChatEvents())
 	// keep the process (and bot) alive
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt)
@@ -30,7 +32,23 @@ func main() {
 }
 
 func monitorErrors(errorChannel chan events.ErrorEvent) {
+	for {
+		e, ok := <-errorChannel
+		if !ok {
+			return
+		}
+		log.Println(e)
+	}
+}
 
+func monitorEvents(eventsChannel chan events.ChatEvent) {
+	for {
+		e, ok := <-eventsChannel
+		if !ok {
+			return
+		}
+		log.Println(e)
+	}
 }
 
 func addHandlers(r victor.Robot) {
@@ -71,25 +89,25 @@ func addHandlers(r victor.Robot) {
 
 func byeFunc(s victor.State) {
 	msg := fmt.Sprintf("Bye %s!", s.Message().User().Name())
-	s.Chat().Send(s.Message().ChannelID(), msg)
+	s.Chat().Send(s.Message().Channel().ID(), msg)
 }
 
 func echoFunc(s victor.State) {
-	s.Chat().Send(s.Message().ChannelID(), s.Message().Text())
+	s.Chat().Send(s.Message().Channel().ID(), s.Message().Text())
 }
 
 func thanksFunc(s victor.State) {
 	msg := fmt.Sprintf("You're welcome %s!", s.Message().User().Name())
-	s.Chat().Send(s.Message().ChannelID(), msg)
+	s.Chat().Send(s.Message().Channel().ID(), msg)
 }
 
 func fieldsFunc(s victor.State) {
 	for _, f := range s.Fields() {
-		s.Chat().Send(s.Message().ChannelID(), f)
+		s.Chat().Send(s.Message().Channel().ID(), f)
 	}
 }
 
 func defaultFunc(s victor.State) {
-	s.Chat().Send(s.Message().ChannelID(),
+	s.Chat().Send(s.Message().Channel().ID(),
 		"Unrecognized command. Type `help` to see supported commands.")
 }
