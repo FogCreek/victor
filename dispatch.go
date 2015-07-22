@@ -521,11 +521,11 @@ func showAllCommands(s State, d *dispatch) {
 		if !ok || docPair.IsHidden() {
 			continue
 		}
-		buf.WriteString("*")
-		buf.WriteString(docPair.Name())
-		buf.WriteString("* - _")
-		buf.WriteString(docPair.Description())
-		buf.WriteString("_\n")
+		buf.WriteString(fmt.Sprintf("*%s*", docPair.Name()))
+		if len(docPair.Description()) > 0 {
+			buf.WriteString(fmt.Sprintf(" - _%s_", docPair.Description()))
+		}
+		buf.WriteString("\n")
 	}
 	buf.WriteString("\nFor help with a command, type `help [command name]`.")
 	s.Chat().Send(s.Message().Channel().ID(), buf.String())

@@ -25,12 +25,21 @@ type State interface {
 	Chat() chat.Adapter
 	Message() chat.Message
 	Fields() []string
+	Reply(string)
 }
 
 type state struct {
 	robot   Robot
 	message chat.Message
 	fields  []string
+}
+
+// Reply is a convience method to reply to the current message.
+//
+// Calling "state.Reply(msg) is equivalent to calling
+// "state.Chat().Send(state.Message().Channel().ID(), msg)"
+func (s *state) Reply(msg string) {
+	s.robot.Chat().Send(s.message.Channel().ID(), msg)
 }
 
 // Returns the Robot

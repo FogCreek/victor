@@ -11,6 +11,14 @@ type MockState struct {
 	MockFields  []string
 }
 
+// Reply is a convience method to reply to the current message.
+//
+// Calling "state.Reply(msg) is equivalent to calling
+// "state.Chat().Send(state.Message().Channel().ID(), msg)"
+func (s *MockState) Reply(msg string) {
+	s.MockRobot.Chat().Send(s.Message().Channel().ID(), msg)
+}
+
 // Robot returns the Robot.
 func (s *MockState) Robot() victor.Robot {
 	return s.MockRobot
