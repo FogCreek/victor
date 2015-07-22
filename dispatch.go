@@ -528,7 +528,7 @@ func showAllCommands(s State, d *dispatch) {
 		buf.WriteString("\n")
 	}
 	buf.WriteString("\nFor help with a command, type `help [command name]`.")
-	s.Chat().Send(s.Message().Channel().ID(), buf.String())
+	s.Reply(buf.String())
 }
 
 func showCommandHelp(s State, d *dispatch) {
@@ -571,7 +571,7 @@ func showCommandHelp(s State, d *dispatch) {
 			buf.WriteString("\n")
 		}
 	}
-	s.Chat().Send(s.Message().Channel().ID(), buf.String())
+	s.Reply(buf.String())
 }
 
 var quoteCharacters = &unicode.RangeTable{
