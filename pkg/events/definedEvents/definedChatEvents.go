@@ -6,6 +6,12 @@ import (
 	"github.com/FogCreek/victor/pkg/chat"
 )
 
+type ConnectingEvent struct{}
+
+func (c *ConnectingEvent) String() string {
+	return "Connecting"
+}
+
 type ConnectedEvent struct{}
 
 func (c *ConnectedEvent) String() string {

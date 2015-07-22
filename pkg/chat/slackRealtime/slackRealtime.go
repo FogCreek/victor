@@ -384,11 +384,13 @@ func (adapter *SlackAdapter) monitorEvents() {
 		case *slack.InvalidAuthEvent:
 			errorChannel <- &definedEvents.InvalidAuth{}
 		case *slack.ConnectingEvent:
-			log.Println(adapter.token + " connecting")
+			go func() {
+				eventChannel <- &definedEvents.ConnectingEvent{}
+			}()
 		case *slack.ConnectedEvent:
-			log.Println(adapter.token + " connected")
-			adapter.initAdapterInfo(e.Info)
-			eventChannel <- &definedEvents.ConnectedEvent{}
+			go func() {
+				eventChannel <- &definedEvents.ConnectedEvent{}
+			}()
 		case *slack.SlackWSError:
 			errorChannel <- &events.BaseError{
 				ErrorObj: e,
