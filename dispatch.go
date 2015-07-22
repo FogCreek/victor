@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/FogCreek/victor/pkg/chat"
@@ -152,6 +153,7 @@ type dispatch struct {
 	commandNames   []string
 	patterns       []HandlerRegExpPair
 	botNameRegex   *regexp.Regexp
+	handlerMutex   *sync.RWMutex
 }
 
 // newDispatch returns a new *dispatch instance which matches all message
@@ -162,6 +164,7 @@ func newDispatch(bot Robot) *dispatch {
 		defaultHandler: nil,
 		commands:       make(map[string]HandlerDocPair),
 		botNameRegex:   regexp.MustCompile(fmt.Sprintf(botNameRegexFormat, bot.Name())),
+		handlerMutex:   &sync.RWMutex{},
 	}
 }
 
@@ -186,7 +189,13 @@ func appendInOrderWithoutRepeats(array []string, toAdd string) []string {
 }
 
 // Commands returns a copy of the internal commands map.
+//
+// This opens a read lock on the handlerMutex so new commands cannot be added
+// while a copy of the commands is made (they will block until processing is
+// completed)
 func (d *dispatch) Commands() map[string]HandlerDocPair {
+	d.handlerMutex.RLock()
+	defer d.handlerMutex.RUnlock()
 	cmdCopy := make(map[string]HandlerDocPair)
 	for key, value := range d.commands {
 		cmdCopy[key] = value
@@ -197,6 +206,10 @@ func (d *dispatch) Commands() map[string]HandlerDocPair {
 // EnableHelpCommand registers the default help handler with the bot's command
 // map under the name "help". This will log a message if there is already a
 // handler registered under that name.
+//
+// This opens a write lock on the handlerMutex or will wait until one can be
+// opened. This is therefore safe to use concurrently with other handler
+// functions and/or message processing.
 func (d *dispatch) EnableHelpCommand() {
 	if _, exists := d.commands[helpCommandName]; exists {
 		log.Println("Enabling built in help command and overriding set help command.")
@@ -214,7 +227,13 @@ func (d *dispatch) EnableHelpCommand() {
 // This will call the handler function if a string insensitive match succeeds
 // on the command name of a message that is considered a potential command
 // (either sent @ the bot's name or in a direct message).
+//
+// This opens a write lock on the handlerMutex or will wait until one can be
+// opened. This is therefore safe to use concurrently with other handler
+// functions and/or message processing.
 func (d *dispatch) HandleCommand(cmd HandlerDocPair) {
+	d.handlerMutex.Lock()
+	defer d.handlerMutex.Unlock()
 	lowerName := strings.ToLower(cmd.Name())
 	if _, exists := d.commands[lowerName]; exists {
 		log.Printf("\"%s\" has been set more than once.", lowerName)
@@ -236,6 +255,10 @@ func (d *dispatch) HandleCommand(cmd HandlerDocPair) {
 //
 // This uses regexp.MustCompile so it panics if given an invalid regular
 // expression.
+//
+// This opens a write lock on the handlerMutex or will wait until one can be
+// opened. This is therefore safe to use concurrently with other handler
+// functions and/or message processing.
 func (d *dispatch) HandleCommandPattern(pattern string, cmd HandlerDocPair) {
 	d.HandleCommandRegexp(regexp.MustCompile(pattern), cmd)
 }
@@ -246,7 +269,13 @@ func (d *dispatch) HandleCommandPattern(pattern string, cmd HandlerDocPair) {
 // message). They are evaluated only after no regular commands match the input
 // and then they are checked in the same order as they were added. They are
 // only checked against the first word of the message!
+//
+// This opens a write lock on the handlerMutex or will wait until one can be
+// opened. This is therefore safe to use concurrently with other handler
+// functions and/or message processing.
 func (d *dispatch) HandleCommandRegexp(exp *regexp.Regexp, cmd HandlerDocPair) {
+	d.handlerMutex.Lock()
+	defer d.handlerMutex.Unlock()
 	lowerName := strings.ToLower(cmd.Name())
 	if exp == nil {
 		log.Panicf("Cannot add nil regular expression command under name \"%s\"\n.", lowerName)
@@ -274,7 +303,12 @@ func (d *dispatch) HandleCommandRegexp(exp *regexp.Regexp, cmd HandlerDocPair) {
 // with the same documentation as the original command although this also
 // registers the alias name with the original HandlerDocPair for help text
 // purposes.
+//
+// This opens a write lock on the handlerMutex or will wait until one can be
+// opened. This is therefore safe to use concurrently with other handler
+// functions and/or message processing.
 func (d *dispatch) HandleCommandAlias(originalName, aliasName string) {
+	d.handlerMutex.Lock()
 	lowerOrigName := strings.ToLower(originalName)
 	doc, exists := d.commands[lowerOrigName]
 	if !exists {
@@ -294,6 +328,8 @@ func (d *dispatch) HandleCommandAlias(originalName, aliasName string) {
 		CmdDescription: doc.Description(),
 		CmdUsage:       doc.Usage(),
 	}
+	// release our lock before actually adding the command
+	d.handlerMutex.Unlock()
 	d.HandleCommand(newDoc)
 }
 
@@ -303,6 +339,10 @@ func (d *dispatch) HandleCommandAlias(originalName, aliasName string) {
 //
 // This uses regexp.MustCompile so it panics if given an invalid regular
 // expression.
+//
+// This opens a write lock on the handlerMutex or will wait until one can be
+// opened. This is therefore safe to use concurrently with other handler
+// functions and/or message processing.
 func (d *dispatch) HandleCommandAliasPattern(originalName, aliasName string, pattern string) {
 	d.HandleCommandAliasRegexp(originalName, aliasName, regexp.MustCompile(pattern))
 }
@@ -321,7 +361,12 @@ func (d *dispatch) HandleCommandAliasPattern(originalName, aliasName string, pat
 // help text for the original command. If this should be a "silent" (unlisted)
 // alias then call this with the "aliasName" parameter as an empty string ("")
 // and it will not be added.
+//
+// This opens a write lock on the handlerMutex or will wait until one can be
+// opened. This is therefore safe to use concurrently with other handler
+// functions and/or message processing.
 func (d *dispatch) HandleCommandAliasRegexp(originalName, aliasName string, exp *regexp.Regexp) {
+	d.handlerMutex.Lock()
 	if exp == nil {
 		log.Println("Cannot add nil regular expression.")
 		return
@@ -344,6 +389,8 @@ func (d *dispatch) HandleCommandAliasRegexp(originalName, aliasName string, exp 
 		CmdDescription: doc.Description(),
 		CmdUsage:       doc.Usage(),
 	}
+	// release our lock before actually adding the alias
+	d.handlerMutex.Unlock()
 	d.HandleCommandRegexp(exp, newDoc)
 }
 
@@ -353,6 +400,10 @@ func (d *dispatch) HandleCommandAliasRegexp(originalName, aliasName string, exp 
 //
 // This uses regexp.MustCompile so it panics if given an invalid regular
 // expression.
+//
+// This opens a write lock on the handlerMutex or will wait until one can be
+// opened. This is therefore safe to use concurrently with other handler
+// functions and/or message processing.
 func (d *dispatch) HandlePattern(pattern string, handler HandlerFunc) {
 	d.HandleRegexp(regexp.MustCompile(pattern), handler)
 }
@@ -362,7 +413,13 @@ func (d *dispatch) HandlePattern(pattern string, handler HandlerFunc) {
 // considered a potential command (NOT sent @ the bot and NOT in a
 // direct message). If multiple expressions are added then they will be
 // evaluated in the order of insertion.
+//
+// This opens a write lock on the handlerMutex or will wait until one can be
+// opened. This is therefore safe to use concurrently with other handler
+// functions and/or message processing.
 func (d *dispatch) HandleRegexp(exp *regexp.Regexp, handler HandlerFunc) {
+	d.handlerMutex.Lock()
+	defer d.handlerMutex.Unlock()
 	if exp == nil {
 		log.Println("Cannot add nil regular expression.")
 		return
@@ -376,7 +433,13 @@ func (d *dispatch) HandleRegexp(exp *regexp.Regexp, handler HandlerFunc) {
 // SetDefaultHandler sets a function as the default handler which is called
 // when a potential command message (either sent @ the bot's name or in a
 // direct message) does not match any of the other set commands.
+//
+// This opens a write lock on the handlerMutex or will wait until one can be
+// opened. This is therefore safe to use concurrently with other handler
+// functions and/or message processing.
 func (d *dispatch) SetDefaultHandler(handler HandlerFunc) {
+	d.handlerMutex.Lock()
+	defer d.handlerMutex.Unlock()
 	if d.defaultHandler != nil {
 		log.Println("Default handler has been set more than once.")
 	}
@@ -393,7 +456,13 @@ func (d *dispatch) SetDefaultHandler(handler HandlerFunc) {
 //
 // If the message is not a potential command then it is checked against all
 // registered patterns (with an empty fields array upon a match).
+//
+// This opens a read lock on the handlerMutex so new commands cannot be added
+// while a message is being processed (they will block until processing is
+// completed)
 func (d *dispatch) ProcessMessage(m chat.Message) {
+	d.handlerMutex.RLock()
+	defer d.handlerMutex.RUnlock()
 	messageText := m.Text()
 	nameMatch := d.botNameRegex.FindString(messageText)
 	if len(nameMatch) > 0 || m.IsDirectMessage() {
@@ -410,6 +479,9 @@ func (d *dispatch) ProcessMessage(m chat.Message) {
 // callDefault invokes the default message handler if one is set.
 // If one is not set then it logs the unhandled occurrance but otherwise does
 // not fail.
+//
+// This does not acquire a lock on the handlerMutex but one should be acquired
+// for reading before calling this method.
 func (d *dispatch) callDefault(m chat.Message, messageText string) {
 	fields := parseFields(messageText)
 	if d.defaultHandler != nil {
@@ -428,6 +500,9 @@ func (d *dispatch) callDefault(m chat.Message, messageText string) {
 // the first match. It expects the second parameter to be the message's text
 // with the bot's name and any follwing text up until the next word whitespace
 // removed. This returns true if a match is made and false otherwise.
+//
+// This does not acquire a lock on the handlerMutex but one should be acquired
+// for reading before calling this method.
 func (d *dispatch) matchCommands(m chat.Message, messageText string) bool {
 	fullFields := parseFields(messageText)
 	if len(fullFields) == 0 {
@@ -455,6 +530,9 @@ func (d *dispatch) matchCommands(m chat.Message, messageText string) bool {
 //
 // This performs a linear search through the slice of regular expression
 // commands so their priority is the same as the insertion order.
+//
+// This does not acquire a lock on the handlerMutex but one should be acquired
+// for reading before calling this method.
 func (d *dispatch) matchCommandRegexp(m chat.Message, messageText, commandName string, fields []string) bool {
 	cmd := d.findCommandRegexp(commandName)
 	if cmd == nil {
@@ -474,6 +552,9 @@ func (d *dispatch) matchCommandRegexp(m chat.Message, messageText, commandName s
 // It does this by performing a linear search through the slice and therefore
 // searches in order of insertion. This is safe to call if the internal slice
 // of command regexps is nil.
+//
+// This does not acquire a lock on the handlerMutex but one should be acquired
+// for reading before calling this method.
 func (d *dispatch) findCommandRegexp(commandPart string) HandlerDocPair {
 	for _, cmd := range d.regexpCommands {
 		if cmd.Regexp().MatchString(commandPart) {
@@ -487,6 +568,9 @@ func (d *dispatch) findCommandRegexp(commandPart string) HandlerDocPair {
 // (patterns) in the order of insertion and checks if they match any part of
 // the given message's text. If they do then they are invoked with an empty
 // fields array.
+//
+// This does not acquire a lock on the handlerMutex but one should be acquired
+// for reading before calling this method.
 func (d *dispatch) matchPatterns(m chat.Message) bool {
 	for _, pair := range d.patterns {
 		if pair.Exp().MatchString(m.Text()) {
@@ -500,7 +584,15 @@ func (d *dispatch) matchPatterns(m chat.Message) bool {
 	return false
 }
 
+// defaultHelpHandler either shows all available (and non-hidden) commands or
+// the help text for a given command.
+//
+// This opens a read lock on the handlerMutex so new commands cannot be added
+// while a message is being processed (they will block until processing is
+// completed)
 func defaultHelpHandler(s State, d *dispatch) {
+	d.handlerMutex.RLock()
+	defer d.handlerMutex.RUnlock()
 	if len(s.Fields()) == 0 {
 		showAllCommands(s, d)
 	} else {
@@ -508,6 +600,11 @@ func defaultHelpHandler(s State, d *dispatch) {
 	}
 }
 
+// showAllCommands is used by the default help handler to show a list of all
+// non-hidden commands regsitered to the dispatch.
+//
+// This does not acquire a lock on the handlerMutex but one should be acquired
+// for reading before calling this method.
 func showAllCommands(s State, d *dispatch) {
 	if len(d.commandNames) == 0 {
 		s.Chat().Send(s.Message().Channel().ID(), "No commands have been set!")
@@ -531,6 +628,12 @@ func showAllCommands(s State, d *dispatch) {
 	s.Reply(buf.String())
 }
 
+// showCommandHelp shows the description, usage, and aliases if they are set
+// for a given command name. The command name should be the first element in
+// the state's Fields.
+//
+// This does not acquire a lock on the handlerMutex but one should be acquired
+// for reading before calling this method.
 func showCommandHelp(s State, d *dispatch) {
 	if len(s.Fields()) == 0 {
 		return
