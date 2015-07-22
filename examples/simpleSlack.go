@@ -9,12 +9,23 @@ import (
 	"github.com/FogCreek/victor"
 	"github.com/FogCreek/victor/pkg/chat/slackRealtime"
 	"github.com/FogCreek/victor/pkg/events"
+	"github.com/FogCreek/victor/pkg/events/definedEvents"
 )
 
 const SLACK_TOKEN = "SLACK_TOKEN"
 const BOT_NAME = "BOT_NAME"
 
 func main() {
+
+	defer func() {
+		// this is only necessary since the slack api used by the slack adapter
+		// does not currently implement a "Stop" or "Disconnect" method
+		if e := recover(); e != nil {
+			fmt.Println("bot.Stop() exited with panic: ", e)
+			os.Exit(1)
+		}
+	}()
+
 	bot := victor.New(victor.Config{
 		ChatAdapter:   "slackRealtime",
 		AdapterConfig: slackRealtime.NewConfig(SLACK_TOKEN),
@@ -49,11 +60,22 @@ func monitorErrors(errorChannel <-chan events.ErrorEvent) {
 
 func monitorEvents(eventsChannel chan events.ChatEvent) {
 	for {
-		e, ok := <-eventsChannel
+		event, ok := <-eventsChannel
 		if !ok {
 			return
 		}
-		log.Printf("Chat Event: %+v", e)
+		switch e := event.(type) {
+		case *definedEvents.ConnectingEvent:
+			log.Println("Connecting Event fired")
+		case *definedEvents.ConnectedEvent:
+			log.Println("Connected Event fired")
+		case *definedEvents.UserEvent:
+			log.Printf("User Event: %+v", e)
+		case *definedEvents.ChannelEvent:
+			log.Printf("Channel Event: %+v", e)
+		default:
+			log.Println("Unrecognized Chat Event:", e)
+		}
 	}
 }
 
