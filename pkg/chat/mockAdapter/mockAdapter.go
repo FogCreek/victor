@@ -39,6 +39,7 @@ func init() {
 			IsPotentialUserRet:    true,
 			IsPotentialChannelRet: true,
 			UserRet:               defaultUserRet,
+			ChannelRet:            defaultChannelRet,
 			AllUsersRet:           []chat.User{defaultUserRet},
 			PublicChannelsRet:     []chat.Channel{defaultChannelRet},
 		}
@@ -56,6 +57,7 @@ type MockChatAdapter struct {
 	SentPublic,
 	SentDirect []MockMessagePair
 	UserRet               chat.User
+	ChannelRet            chat.Channel
 	AllUsersRet           []chat.User
 	PublicChannelsRet     []chat.Channel
 	IsPotentialUserRet    bool
@@ -128,6 +130,10 @@ func (m *MockChatAdapter) ID() string {
 // set to any chat.User instance (default value has full name "Fake User").
 func (m *MockChatAdapter) GetUser(string) chat.User {
 	return m.UserRet
+}
+
+func (m *MockChatAdapter) GetChannel(string) chat.Channel {
+	return m.ChannelRet
 }
 
 func (m *MockChatAdapter) GetAllUsers() []chat.User {

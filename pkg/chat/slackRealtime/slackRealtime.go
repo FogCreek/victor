@@ -31,6 +31,9 @@ var (
 	// Match "<@Userid>" and "<@UserID|fullname>"
 	userIDRegexp = regexp.MustCompile(`^<@(U[[:alnum:]]+)(?:(?:|\S+)?>)`)
 
+	// Match "<#ChannelID>" and "<#ChannelID|name>"
+	channelIDRegexp = regexp.MustCompile(`^<#(C[[:alnum:]]+)(?:(?:|\S+)?>)`)
+
 	// Should match all formatted slack inputs and have a capturing group of
 	// the desired value from the formatted group.
 	formattingRegexp = regexp.MustCompile(`<(?:mailto\:)?([^\|>]+)\|?[^>]*>`)
@@ -126,10 +129,10 @@ func (adapter *SlackAdapter) GetUser(userIDStr string) chat.User {
 		log.Printf("%s is not a potential user", userIDStr)
 		return nil
 	}
-	userID := normalizeUserID(userIDStr)
+	userID := normalizeID(userIDStr, userIDRegexp)
 	userObj, err := adapter.getUserFromSlack(userID)
 	if err != nil {
-		log.Println("Error getting user: " + err.Error())
+		log.Println("Error getting user:", err.Error())
 		return nil
 	}
 	return &chat.BaseUser{
@@ -138,6 +141,32 @@ func (adapter *SlackAdapter) GetUser(userIDStr string) chat.User {
 		UserEmail: userObj.Profile.Email,
 		UserIsBot: userObj.IsBot,
 	}
+}
+
+func (adapter *SlackAdapter) GetChannel(channelIDStr string) chat.Channel {
+	if !adapter.IsPotentialChannel(channelIDStr) {
+		log.Printf("%s is not a potential channel", channelIDStr)
+		return nil
+	}
+	channelID := normalizeID(channelIDStr, channelIDRegexp)
+	channelObj := adapter.getChannelFromSlack(channelID)
+	return &chat.BaseChannel{
+		ChannelID:   channelObj.ID,
+		ChannelName: channelObj.Name,
+	}
+}
+
+// normalizeID returns an ID without the extra formatting that slack might add.
+//
+// This returns the first captured field of the first submatch using the given
+// precompiled regexp. If no matches are found or no captured groups are
+// defined then this returns the input text unchanged.
+func normalizeID(id string, exp *regexp.Regexp) string {
+	idArr := exp.FindAllStringSubmatch(id, 1)
+	if len(idArr) == 0 || len(idArr[0]) < 2 {
+		return id
+	}
+	return idArr[0][1]
 }
 
 // GetAllUsers returns a slice of all user objects that are known to the
@@ -179,21 +208,12 @@ func (adapter *SlackAdapter) IsPotentialUser(userString string) bool {
 	return userIDRegexp.MatchString(userString)
 }
 
-// WIP
+// IsPotentialChannel checks if a given string is potentially referring to a
+// slack channel. Strings given to this function should be trimmed of leading
+// whitespace as it does not account for that (it is meant to be used with the
+// fields method on the frameworks calls to handlers which are trimmed).
 func (adapter *SlackAdapter) IsPotentialChannel(channelString string) bool {
-	// FIXME implement
-	return false
-}
-
-// normalizeUserID returns a user's ID without the extra formatting that slack
-// might add. This will return "U01234567" for inputs: "U01234567",
-// "@U01234567", "<@U01234567>", and "<@U01234567|name>"
-func normalizeUserID(userID string) string {
-	userIDArr := userIDRegexp.FindAllStringSubmatch(userID, 1)
-	if len(userIDArr) == 0 {
-		return userID
-	}
-	return userIDArr[0][1]
+	return channelIDRegexp.MatchString(channelString)
 }
 
 // Run starts the adapter and begins to listen for new messages to send/receive.
@@ -208,7 +228,6 @@ func (adapter *SlackAdapter) Run() {
 }
 
 func (adapter *SlackAdapter) initAdapterInfo(info *slack.Info) {
-	// info := adapter.rtm.GetInfo()
 	adapter.formattedSlackID = fmt.Sprintf("<@%s>", info.User.Id)
 	adapter.botID = info.User.Id
 	adapter.domain = info.Team.Domain
@@ -220,20 +239,24 @@ func (adapter *SlackAdapter) initAdapterInfo(info *slack.Info) {
 			ID:        channel.Id,
 			Name:      channel.Name,
 			IsChannel: true,
+			IsDM:      false,
 		}
 	}
 	for _, group := range info.Groups {
 		adapter.channelInfo[group.Id] = channelGroupInfo{
-			ID:   group.Id,
-			Name: group.Name,
+			ID:        group.Id,
+			Name:      group.Name,
+			IsChannel: false,
+			IsDM:      false,
 		}
 	}
 	for _, im := range info.IMs {
 		adapter.channelInfo[im.Id] = channelGroupInfo{
-			ID:     im.Id,
-			Name:   fmt.Sprintf("DM %s", im.Id),
-			IsDM:   true,
-			UserID: im.UserId,
+			ID:        im.Id,
+			Name:      fmt.Sprintf("DM %s", im.Id),
+			IsChannel: false,
+			IsDM:      true,
+			UserID:    im.UserId,
 		}
 		adapter.directMessageID[im.UserId] = im.Id
 	}
@@ -274,7 +297,7 @@ func (adapter *SlackAdapter) getUserFromSlack(userID string) (*slack.User, error
 	return &user, nil
 }
 
-func (adapter *SlackAdapter) getChannel(channelID string) channelGroupInfo {
+func (adapter *SlackAdapter) getChannelFromSlack(channelID string) channelGroupInfo {
 	channel, exists := adapter.channelInfo[channelID]
 	if exists {
 		return channel
@@ -301,7 +324,7 @@ func (adapter *SlackAdapter) handleMessage(event *slack.MessageEvent) {
 		return
 	}
 	user, _ := adapter.getUserFromSlack(event.UserId)
-	channel := adapter.getChannel(event.ChannelId)
+	channel := adapter.getChannelFromSlack(event.ChannelId)
 	// TODO use error
 	if user != nil {
 		// ignore any messages that are sent by any bot

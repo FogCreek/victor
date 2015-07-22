@@ -35,6 +35,7 @@ type Adapter interface {
 	// remain constant as long as the adapter points to the same chat instance.
 	ID() string
 	GetUser(string) User
+	GetChannel(string) Channel
 	IsPotentialUser(string) bool
 	IsPotentialChannel(string) bool
 	GetAllUsers() []User
