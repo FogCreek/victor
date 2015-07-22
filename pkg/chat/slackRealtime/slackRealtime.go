@@ -391,6 +391,7 @@ func (adapter *SlackAdapter) monitorEvents() {
 			go func() {
 				eventChannel <- &definedEvents.ConnectedEvent{}
 			}()
+			go adapter.initAdapterInfo(e.Info)
 		case *slack.SlackWSError:
 			errorChannel <- &events.BaseError{
 				ErrorObj: e,
