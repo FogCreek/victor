@@ -126,7 +126,7 @@ func (adapter *SlackAdapter) GetUser(userIDStr string) chat.User {
 		log.Printf("%s is not a potential user", userIDStr)
 		return nil
 	}
-	userID := adapter.NormalizeUserID(userIDStr)
+	userID := normalizeUserID(userIDStr)
 	userObj, err := adapter.getUserFromSlack(userID)
 	if err != nil {
 		log.Println("Error getting user: " + err.Error())
@@ -179,10 +179,16 @@ func (adapter *SlackAdapter) IsPotentialUser(userString string) bool {
 	return userIDRegexp.MatchString(userString)
 }
 
+// WIP
+func (adapter *SlackAdapter) IsPotentialChannel(channelString string) bool {
+	// FIXME implement
+	return false
+}
+
 // normalizeUserID returns a user's ID without the extra formatting that slack
 // might add. This will return "U01234567" for inputs: "U01234567",
 // "@U01234567", "<@U01234567>", and "<@U01234567|name>"
-func (adapter *SlackAdapter) NormalizeUserID(userID string) string {
+func normalizeUserID(userID string) string {
 	userIDArr := userIDRegexp.FindAllStringSubmatch(userID, 1)
 	if len(userIDArr) == 0 {
 		return userID

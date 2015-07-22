@@ -31,16 +31,16 @@ func init() {
 		nextID++
 		nextIDMutex.Unlock()
 		return &MockChatAdapter{
-			robot:              r,
-			id:                 strconv.Itoa(id),
-			Sent:               make([]MockMessagePair, 0, 10),
-			SentPublic:         make([]MockMessagePair, 0, 10),
-			SentDirect:         make([]MockMessagePair, 0, 10),
-			IsPotentialUserRet: true,
-			NormalizeUserIDRet: "",
-			UserRet:            defaultUserRet,
-			AllUsersRet:        []chat.User{defaultUserRet},
-			PublicChannelsRet:  []chat.Channel{defaultChannelRet},
+			robot:                 r,
+			id:                    strconv.Itoa(id),
+			Sent:                  make([]MockMessagePair, 0, 10),
+			SentPublic:            make([]MockMessagePair, 0, 10),
+			SentDirect:            make([]MockMessagePair, 0, 10),
+			IsPotentialUserRet:    true,
+			IsPotentialChannelRet: true,
+			UserRet:               defaultUserRet,
+			AllUsersRet:           []chat.User{defaultUserRet},
+			PublicChannelsRet:     []chat.Channel{defaultChannelRet},
 		}
 	})
 }
@@ -55,11 +55,11 @@ type MockChatAdapter struct {
 	Sent,
 	SentPublic,
 	SentDirect []MockMessagePair
-	UserRet            chat.User
-	AllUsersRet        []chat.User
-	PublicChannelsRet  []chat.Channel
-	IsPotentialUserRet bool
-	NormalizeUserIDRet string
+	UserRet               chat.User
+	AllUsersRet           []chat.User
+	PublicChannelsRet     []chat.Channel
+	IsPotentialUserRet    bool
+	IsPotentialChannelRet bool
 }
 
 // Clear clears the contents of the "Sent" array.
@@ -144,11 +144,8 @@ func (m *MockChatAdapter) IsPotentialUser(string) bool {
 	return m.IsPotentialUserRet
 }
 
-func (m *MockChatAdapter) NormalizeUserID(id string) string {
-	if m.NormalizeUserIDRet == "" {
-		return id
-	}
-	return m.NormalizeUserIDRet
+func (m *MockChatAdapter) IsPotentialChannel(string) bool {
+	return m.IsPotentialChannelRet
 }
 
 // MockMessagePair is used to store messages that are sent by chat handlers to

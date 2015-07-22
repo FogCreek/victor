@@ -128,6 +128,10 @@ func (a *Adapter) IsPotentialUser(userID string) bool {
 	return userID == realUser.ID()
 }
 
+func (a *Adapter) IsPotentialChannel(channelID string) bool {
+	return channelID == defaultChannel.ChannelID
+}
+
 func (a *Adapter) NormalizeUserID(userID string) string {
 	return userID
 }

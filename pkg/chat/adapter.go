@@ -36,7 +36,7 @@ type Adapter interface {
 	ID() string
 	GetUser(string) User
 	IsPotentialUser(string) bool
-	NormalizeUserID(string) string
+	IsPotentialChannel(string) bool
 	GetAllUsers() []User
 	GetPublicChannels() []Channel
 }
