@@ -150,6 +150,9 @@ func (adapter *SlackAdapter) GetChannel(channelIDStr string) chat.Channel {
 	}
 	channelID := normalizeID(channelIDStr, channelIDRegexp)
 	channelObj := adapter.getChannelFromSlack(channelID)
+	if channelObj.Name == "Unrecognized" {
+		return nil
+	}
 	return &chat.BaseChannel{
 		ChannelID:   channelObj.ID,
 		ChannelName: channelObj.Name,

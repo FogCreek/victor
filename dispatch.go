@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -463,6 +464,12 @@ func (d *dispatch) SetDefaultHandler(handler HandlerFunc) {
 func (d *dispatch) ProcessMessage(m chat.Message) {
 	d.handlerMutex.RLock()
 	defer d.handlerMutex.RUnlock()
+	defer func() {
+		if e := recover(); e != nil {
+			log.Println("Unexpected Panic Processing Message:", e)
+			os.Exit(1)
+		}
+	}()
 	messageText := m.Text()
 	nameMatch := d.botNameRegex.FindString(messageText)
 	if len(nameMatch) > 0 || m.IsDirectMessage() {
