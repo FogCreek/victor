@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"log"
-	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -466,8 +465,8 @@ func (d *dispatch) ProcessMessage(m chat.Message) {
 	defer d.handlerMutex.RUnlock()
 	defer func() {
 		if e := recover(); e != nil {
-			log.Println("Unexpected Panic Processing Message:", e)
-			os.Exit(1)
+			log.Println("Unexpected Panic Processing Message:", m.Text(), " -- Error:", e)
+			return
 		}
 	}()
 	messageText := m.Text()
