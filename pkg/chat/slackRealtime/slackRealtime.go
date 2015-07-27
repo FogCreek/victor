@@ -416,14 +416,10 @@ func (adapter *SlackAdapter) monitorEvents() {
 		case *slack.InvalidAuthEvent:
 			errorChannel <- &definedEvents.InvalidAuth{}
 		case *slack.ConnectingEvent:
-			go func() {
-				eventChannel <- &definedEvents.ConnectingEvent{}
-			}()
+			eventChannel <- &definedEvents.ConnectingEvent{}
 		case *slack.ConnectedEvent:
-			go func() {
-				eventChannel <- &definedEvents.ConnectedEvent{}
-			}()
 			go adapter.initAdapterInfo(e.Info)
+			eventChannel <- &definedEvents.ConnectedEvent{}
 		case *slack.SlackWSError:
 			errorChannel <- &events.BaseError{
 				ErrorObj: e,
@@ -452,15 +448,8 @@ func (adapter *SlackAdapter) monitorEvents() {
 			go adapter.userChanged(e.User)
 		case *slack.TeamJoinEvent:
 			go adapter.userChanged(*e.User)
-			eventChannel <- &definedEvents.UserEvent{
-				User: &chat.BaseUser{
-					UserID:    e.User.Id,
-					UserName:  e.User.Name,
-					UserEmail: e.User.Profile.Email,
-					UserIsBot: e.User.IsBot,
-				},
-				WasRemoved: false,
-			}
+		case *slack.ChannelRenameEvent:
+			go adapter.channelRenamed(e.Channel)
 		case *slack.UnmarshallingErrorEvent:
 			errorChannel <- &events.BaseError{
 				ErrorObj: e.ErrorObj,
@@ -479,9 +468,41 @@ func (adapter *SlackAdapter) monitorEvents() {
 	}
 }
 
+func (adapter *SlackAdapter) channelRenamed(channel slack.ChannelRenameInfo) {
+	chatChannel := &chat.BaseChannel{
+		ChannelID:   channel.Id,
+		ChannelName: channel.Name,
+	}
+	if oldChannel, exists := adapter.channelInfo[channel.Id]; exists {
+		adapter.robot.ChatEvents() <- &definedEvents.ChannelChangedEvent{
+			OldName: oldChannel.Name,
+			Channel: chatChannel,
+		}
+	}
+}
+
 func (adapter *SlackAdapter) userChanged(user slack.User) {
 	if user.IsBot {
 		return
+	}
+	chatUser := &chat.BaseUser{
+		UserID:    user.Id,
+		UserName:  user.Name,
+		UserEmail: user.Profile.Email,
+		UserIsBot: user.IsBot,
+	}
+	if oldUser, exists := adapter.userInfo[user.Id]; exists {
+		if oldUser.Name != user.Name {
+			adapter.robot.ChatEvents() <- &definedEvents.UserChangedEvent{
+				OldName: oldUser.Name,
+				User:    chatUser,
+			}
+		}
+	} else {
+		adapter.robot.ChatEvents() <- &definedEvents.UserEvent{
+			User:       chatUser,
+			WasRemoved: false,
+		}
 	}
 	adapter.userInfo[user.Id] = user
 }

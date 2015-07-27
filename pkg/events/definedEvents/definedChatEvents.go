@@ -31,6 +31,16 @@ func (u *UserEvent) String() string {
 	return userPart + "added"
 }
 
+type UserChangedEvent struct {
+	User    chat.User
+	OldName string
+}
+
+func (u *UserChangedEvent) String() string {
+	return fmt.Sprintf("User %s has changed from \"%s\" to \"%s\"",
+		u.User.ID(), u.OldName, u.User.Name())
+}
+
 type ChannelEvent struct {
 	Channel    chat.Channel
 	WasRemoved bool
@@ -42,4 +52,14 @@ func (c *ChannelEvent) String() string {
 		return channelPart + "removed"
 	}
 	return channelPart + "added"
+}
+
+type ChannelChangedEvent struct {
+	Channel chat.Channel
+	OldName string
+}
+
+func (c *ChannelChangedEvent) String() string {
+	return fmt.Sprintf("Channel %s has changed from \"%s\" to \"%s\"",
+		c.Channel.ID(), c.OldName, c.Channel.Name())
 }
