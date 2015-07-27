@@ -465,6 +465,16 @@ func (adapter *SlackAdapter) monitorEvents() {
 			errorChannel <- &events.BaseError{
 				ErrorObj: e.ErrorObj,
 			}
+		case *slack.OutgoingErrorEvent:
+			errorChannel <- &events.BaseError{
+				ErrorObj: e.ErrorObj,
+			}
+		case *slack.MessageTooLongEvent:
+			errorChannel <- &definedEvents.MessageTooLong{
+				MaxLength: e.MaxLength,
+				Text:      e.Message.Text,
+				ChannelID: e.Message.ChannelId,
+			}
 		}
 	}
 }

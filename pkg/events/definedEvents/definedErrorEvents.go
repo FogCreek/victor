@@ -1,6 +1,9 @@
 package definedEvents
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 type InvalidAuth struct{}
 
@@ -34,4 +37,22 @@ func (d *Disconnect) ErrorObject() error {
 	} else {
 		return errors.New("Unexpected Disconnect")
 	}
+}
+
+type MessageTooLong struct {
+	ChannelID string
+	Text      string
+	MaxLength int
+}
+
+func (m *MessageTooLong) Error() string {
+	return m.ErrorObject().Error()
+}
+
+func (m *MessageTooLong) ErrorObject() error {
+	return fmt.Errorf("Message too long (max %d chars)", m.MaxLength)
+}
+
+func (m *MessageTooLong) IsFatal() bool {
+	return false
 }
