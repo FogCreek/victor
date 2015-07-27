@@ -32,13 +32,28 @@ func (u *UserEvent) String() string {
 }
 
 type UserChangedEvent struct {
-	User    chat.User
-	OldName string
+	User            chat.User
+	OldName         string
+	OldEmailAddress string
 }
 
+const changeFmt = `"%s" --> "%s"`
+
 func (u *UserChangedEvent) String() string {
-	return fmt.Sprintf("User %s has changed from \"%s\" to \"%s\"",
-		u.User.ID(), u.OldName, u.User.Name())
+	if len(u.OldEmailAddress) > 0 && len(u.OldName) > 0 {
+		return fmt.Sprintf("User %s changed: email "+changeFmt+
+			" & name "+changeFmt,
+			u.User.ID(), u.OldEmailAddress, u.User.EmailAddress(),
+			u.OldName, u.User.Name())
+	} else if len(u.OldName) > 0 {
+		return fmt.Sprintf("User %s changed: name "+changeFmt,
+			u.User.ID(), u.OldName, u.User.Name())
+	} else if len(u.OldEmailAddress) > 0 {
+		return fmt.Sprintf("User %s changed: name "+changeFmt,
+			u.User.ID(), u.OldEmailAddress, u.User.EmailAddress())
+	} else {
+		return fmt.Sprintf("User %d did not change", u.User.ID())
+	}
 }
 
 type ChannelEvent struct {

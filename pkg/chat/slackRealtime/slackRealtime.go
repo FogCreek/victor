@@ -492,12 +492,14 @@ func (adapter *SlackAdapter) userChanged(user slack.User) {
 		UserIsBot: user.IsBot,
 	}
 	if oldUser, exists := adapter.userInfo[user.Id]; exists {
+		event := &definedEvents.UserChangedEvent{User: chatUser}
 		if oldUser.Name != user.Name {
-			adapter.robot.ChatEvents() <- &definedEvents.UserChangedEvent{
-				OldName: oldUser.Name,
-				User:    chatUser,
-			}
+			event.OldName = oldUser.Name
 		}
+		if oldUser.Profile.Email != user.Profile.Email {
+			event.OldEmailAddress = oldUser.Profile.Email
+		}
+		adapter.robot.ChatEvents() <- event
 	} else {
 		adapter.robot.ChatEvents() <- &definedEvents.UserEvent{
 			User:       chatUser,
