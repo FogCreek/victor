@@ -6,6 +6,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/FogCreek/slack"
 	"github.com/FogCreek/victor/pkg/chat"
@@ -78,6 +79,7 @@ func init() {
 			channelInfo:     make(map[string]channelGroupInfo),
 			directMessageID: make(map[string]string),
 			userInfo:        make(map[string]slack.User),
+			mutex:           &sync.RWMutex{},
 		}
 	})
 }
@@ -108,12 +110,12 @@ func (c configImpl) Token() string {
 type SlackAdapter struct {
 	robot            chat.Robot
 	token            string
-	instance         *slack.Client
 	rtm              *slack.RTM
 	chReceiver       chan slack.SlackEvent
 	channelInfo      map[string]channelGroupInfo
 	directMessageID  map[string]string
 	userInfo         map[string]slack.User
+	mutex            *sync.RWMutex
 	domain           string
 	botID            string
 	formattedSlackID string
@@ -176,6 +178,8 @@ func normalizeID(id string, exp *regexp.Regexp) string {
 // chatbot. This does not perform a slack API call as all users should be
 // stored locally and any new users will be added upon a team join event.
 func (adapter *SlackAdapter) GetAllUsers() []chat.User {
+	adapter.mutex.RLock()
+	defer adapter.mutex.RUnlock()
 	var users []chat.User
 	for _, u := range adapter.userInfo {
 		users = append(users, &chat.BaseUser{
@@ -191,6 +195,8 @@ func (adapter *SlackAdapter) GetAllUsers() []chat.User {
 // GetPublicChannels returns a slice of all channels that are known to the
 // chatbot.
 func (adapter *SlackAdapter) GetPublicChannels() []chat.Channel {
+	adapter.mutex.RLock()
+	defer adapter.mutex.RUnlock()
 	var channels []chat.Channel
 	for _, c := range adapter.channelInfo {
 		if c.IsChannel {
@@ -223,14 +229,16 @@ func (adapter *SlackAdapter) IsPotentialChannel(channelString string) bool {
 // At the moment this will crash the program and print the error messages to a
 // log if the connection fails.
 func (adapter *SlackAdapter) Run() {
-	adapter.instance = slack.New(adapter.token)
-	adapter.instance.SetDebug(false)
-	adapter.rtm = adapter.instance.NewRTM()
+	client := slack.New(adapter.token)
+	client.SetDebug(false)
+	adapter.rtm = client.NewRTM()
 	go adapter.monitorEvents()
 	go adapter.rtm.ManageConnection()
 }
 
 func (adapter *SlackAdapter) initAdapterInfo(info *slack.Info) {
+	adapter.mutex.Lock()
+	defer adapter.mutex.Unlock()
 	adapter.formattedSlackID = fmt.Sprintf("<@%s>", info.User.Id)
 	adapter.botID = info.User.Id
 	adapter.domain = info.Team.Domain
@@ -269,7 +277,6 @@ func (adapter *SlackAdapter) initAdapterInfo(info *slack.Info) {
 }
 
 // Stop stops the adapter.
-// TODO implement
 func (adapter *SlackAdapter) Stop() {
 	adapter.rtm.Disconnect()
 }
@@ -282,12 +289,16 @@ func (adapter *SlackAdapter) ID() string {
 }
 
 func (adapter *SlackAdapter) getUserFromSlack(userID string) (*slack.User, error) {
+	adapter.mutex.RLock()
 	// try to get the stored user info
 	user, exists := adapter.userInfo[userID]
+	adapter.mutex.RUnlock()
 	// if it hasn't been stored then perform a slack API call to get it and
 	// store it
 	if !exists {
-		user, err := adapter.instance.GetUserInfo(userID)
+		adapter.mutex.Lock()
+		defer adapter.mutex.Unlock()
+		user, err := adapter.rtm.Client.GetUserInfo(userID)
 		if err != nil {
 			log.Println(err.Error())
 			return nil, err
@@ -301,10 +312,14 @@ func (adapter *SlackAdapter) getUserFromSlack(userID string) (*slack.User, error
 }
 
 func (adapter *SlackAdapter) getChannelFromSlack(channelID string) channelGroupInfo {
+	adapter.mutex.RLock()
 	channel, exists := adapter.channelInfo[channelID]
+	adapter.mutex.RUnlock()
 	if exists {
 		return channel
 	}
+	adapter.mutex.Lock()
+	defer adapter.mutex.Unlock()
 	channelObj, err := adapter.rtm.GetChannelInfo(channelID)
 	if err != nil {
 		log.Printf("Unrecognized channel with ID %s", channelID)
@@ -469,6 +484,8 @@ func (adapter *SlackAdapter) monitorEvents() {
 }
 
 func (adapter *SlackAdapter) channelRenamed(channel slack.ChannelRenameInfo) {
+	adapter.mutex.Lock()
+	defer adapter.mutex.Unlock()
 	chatChannel := &chat.BaseChannel{
 		ChannelID:   channel.Id,
 		ChannelName: channel.Name,
@@ -478,6 +495,8 @@ func (adapter *SlackAdapter) channelRenamed(channel slack.ChannelRenameInfo) {
 			OldName: oldChannel.Name,
 			Channel: chatChannel,
 		}
+		oldChannel.Name = channel.Name
+		adapter.channelInfo[channel.Id] = oldChannel
 	}
 }
 
@@ -485,6 +504,8 @@ func (adapter *SlackAdapter) userChanged(user slack.User) {
 	if user.IsBot {
 		return
 	}
+	adapter.mutex.Lock()
+	defer adapter.mutex.Unlock()
 	chatUser := &chat.BaseUser{
 		UserID:    user.Id,
 		UserName:  user.Name,
@@ -514,6 +535,8 @@ func (adapter *SlackAdapter) domainChanged(event *slack.TeamDomainChangeEvent) {
 }
 
 func (adapter *SlackAdapter) joinedChannel(channel slack.Channel, isChannel bool) {
+	adapter.mutex.Lock()
+	defer adapter.mutex.Unlock()
 	adapter.channelInfo[channel.Id] = channelGroupInfo{
 		Name:      channel.Name,
 		ID:        channel.Id,
@@ -531,6 +554,8 @@ func (adapter *SlackAdapter) joinedChannel(channel slack.Channel, isChannel bool
 }
 
 func (adapter *SlackAdapter) joinedIM(event *slack.IMCreatedEvent) {
+	adapter.mutex.Lock()
+	defer adapter.mutex.Unlock()
 	adapter.channelInfo[event.Channel.Id] = channelGroupInfo{
 		Name:   fmt.Sprintf("DM %s", event.Channel.Id),
 		ID:     event.Channel.Id,
@@ -546,6 +571,8 @@ func (adapter *SlackAdapter) leftIM(event *slack.IMCloseEvent) {
 }
 
 func (adapter *SlackAdapter) leftChannel(channelID string, isChannel bool) {
+	adapter.mutex.Lock()
+	defer adapter.mutex.Unlock()
 	channelName := adapter.channelInfo[channelID].Name
 	delete(adapter.channelInfo, channelID)
 	if isChannel {
@@ -581,11 +608,21 @@ func (adapter *SlackAdapter) SendTyping(channelID string) {
 }
 
 func (adapter *SlackAdapter) getDirectMessageID(userID string) (string, error) {
-	// need to figure out if the first two bool return values are important
-	// https://github.com/nlopes/slack/blob/master/dm.go#L58
+	adapter.mutex.RLock()
 	channel, exists := adapter.channelInfo[userID]
+	adapter.mutex.RUnlock()
 	if !exists {
-		_, _, channelID, err := adapter.instance.OpenIMChannel(userID)
+		_, _, channelID, err := adapter.rtm.Client.OpenIMChannel(userID)
+		adapter.mutex.Lock()
+		adapter.channelInfo[channelID] = channelGroupInfo{
+			ID:        channelID,
+			Name:      fmt.Sprintf("DM %s", channelID),
+			IsChannel: false,
+			IsDM:      true,
+			UserID:    userID,
+		}
+		adapter.directMessageID[userID] = channelID
+		adapter.mutex.Unlock()
 		return channelID, err
 	}
 	return channel.ID, nil
