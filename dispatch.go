@@ -103,9 +103,6 @@ func (d *HandlerDoc) AliasNames() []string {
 // This returns true if the alias name was added and false if the given alias
 // name is already set. This is case sensitive.
 func (d *HandlerDoc) AddAliasName(aliasName string) bool {
-	if d.cmdAliasNames == nil {
-		d.cmdAliasNames = make([]string, 0, 1)
-	}
 	// binary search through sorted array to see if the alias name alraedy
 	// exists
 	pos := sort.SearchStrings(d.cmdAliasNames, aliasName)

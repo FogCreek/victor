@@ -272,6 +272,9 @@ func (adapter *SlackAdapter) initAdapterInfo(info *slack.Info) {
 		adapter.directMessageID[im.UserId] = im.Id
 	}
 	for _, user := range info.Users {
+		if user.Deleted {
+			continue
+		}
 		adapter.userInfo[user.Id] = user
 	}
 }
