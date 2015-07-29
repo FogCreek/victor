@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	timeFormat = "20060102150405"
+	timeFormat     = "20060102150405"
+	chatNameFormat = "Shell Instance %d"
 )
 
 var (
@@ -86,6 +87,10 @@ func (a *Adapter) monitorEvents() {
 			})
 		}
 	}
+}
+
+func (a *Adapter) Name() string {
+	return fmt.Sprintf(chatNameFormat, a.id)
 }
 
 func (a *Adapter) Send(channelID, msg string) {

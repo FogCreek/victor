@@ -108,17 +108,18 @@ func (c configImpl) Token() string {
 
 // SlackAdapter holds all information needed by the adapter to send/receive messages.
 type SlackAdapter struct {
-	robot            chat.Robot
-	token            string
-	rtm              *slack.RTM
-	chReceiver       chan slack.SlackEvent
-	channelInfo      map[string]channelGroupInfo
-	directMessageID  map[string]string
-	userInfo         map[string]slack.User
-	mutex            *sync.RWMutex
-	domain           string
-	botID            string
-	formattedSlackID string
+	robot           chat.Robot
+	token           string
+	rtm             *slack.RTM
+	chReceiver      chan slack.SlackEvent
+	channelInfo     map[string]channelGroupInfo
+	directMessageID map[string]string
+	userInfo        map[string]slack.User
+	mutex           *sync.RWMutex
+	botID,
+	formattedSlackID,
+	domain,
+	teamName string
 }
 
 // GetUser will parse the given user ID string and then return the user's
@@ -236,12 +237,19 @@ func (adapter *SlackAdapter) Run() {
 	go adapter.rtm.ManageConnection()
 }
 
+func (adapter *SlackAdapter) Name() string {
+	adapter.mutex.RLock()
+	defer adapter.mutex.RUnlock()
+	return adapter.teamName
+}
+
 func (adapter *SlackAdapter) initAdapterInfo(info *slack.Info) {
 	adapter.mutex.Lock()
 	defer adapter.mutex.Unlock()
 	adapter.formattedSlackID = fmt.Sprintf("<@%s>", info.User.Id)
 	adapter.botID = info.User.Id
 	adapter.domain = info.Team.Domain
+	adapter.teamName = info.Team.Name
 	for _, channel := range info.Channels {
 		if !channel.IsMember {
 			continue
@@ -379,6 +387,8 @@ func (adapter *SlackAdapter) handleMessage(event *slack.MessageEvent) {
 }
 
 func (adapter *SlackAdapter) getArchiveLink(channelName, timestamp string) string {
+	adapter.mutex.RLock()
+	defer adapter.mutex.RUnlock()
 	return fmt.Sprintf(archiveURLFormat, adapter.domain, channelName, strings.Replace(timestamp, ".", "", 1))
 }
 
@@ -462,6 +472,8 @@ func (adapter *SlackAdapter) monitorEvents() {
 			go adapter.leftIM(e)
 		case *slack.TeamDomainChangeEvent:
 			go adapter.domainChanged(e)
+		case *slack.TeamRenameEvent:
+			go adapter.teamNameChanged(e)
 		case *slack.UserChangeEvent:
 			go adapter.userChanged(e.User)
 		case *slack.TeamJoinEvent:
@@ -534,7 +546,15 @@ func (adapter *SlackAdapter) userChanged(user slack.User) {
 }
 
 func (adapter *SlackAdapter) domainChanged(event *slack.TeamDomainChangeEvent) {
+	adapter.mutex.Lock()
+	defer adapter.mutex.Unlock()
 	adapter.domain = event.Domain
+}
+
+func (adapter *SlackAdapter) teamNameChanged(event *slack.TeamRenameEvent) {
+	adapter.mutex.Lock()
+	defer adapter.mutex.Unlock()
+	adapter.teamName = event.Name
 }
 
 func (adapter *SlackAdapter) joinedChannel(channel slack.Channel, isChannel bool) {

@@ -42,6 +42,7 @@ func init() {
 			ChannelRet:            defaultChannelRet,
 			AllUsersRet:           []chat.User{defaultUserRet},
 			PublicChannelsRet:     []chat.Channel{defaultChannelRet},
+			NameRet:               "Mock Adapter",
 		}
 	})
 }
@@ -56,6 +57,7 @@ type MockChatAdapter struct {
 	Sent,
 	SentPublic,
 	SentDirect []MockMessagePair
+	NameRet               string
 	UserRet               chat.User
 	ChannelRet            chat.Channel
 	AllUsersRet           []chat.User
@@ -69,6 +71,10 @@ func (m *MockChatAdapter) Clear() {
 	m.Sent = make([]MockMessagePair, 0, 10)
 	m.SentPublic = make([]MockMessagePair, 0, 10)
 	m.SentDirect = make([]MockMessagePair, 0, 10)
+}
+
+func (m *MockChatAdapter) Name() string {
+	return m.NameRet
 }
 
 // Receive mocks a message being received by the chat adapter.
