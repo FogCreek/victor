@@ -122,6 +122,10 @@ type SlackAdapter struct {
 	teamName string
 }
 
+func (adapter *SlackAdapter) MaxLength() int {
+	return slack.MaxMessageTextLength
+}
+
 // GetUser will parse the given user ID string and then return the user's
 // information as provided by the slack API. This will first try to get the
 // user's information from a local cache and then will perform a slack API

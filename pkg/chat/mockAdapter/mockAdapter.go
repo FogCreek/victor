@@ -43,6 +43,7 @@ func init() {
 			AllUsersRet:           []chat.User{defaultUserRet},
 			PublicChannelsRet:     []chat.Channel{defaultChannelRet},
 			NameRet:               "Mock Adapter",
+			MaxLengthRet:          -1,
 		}
 	})
 }
@@ -64,6 +65,7 @@ type MockChatAdapter struct {
 	PublicChannelsRet     []chat.Channel
 	IsPotentialUserRet    bool
 	IsPotentialChannelRet bool
+	MaxLengthRet          int
 }
 
 // Clear clears the contents of the "Sent" array.
@@ -71,6 +73,10 @@ func (m *MockChatAdapter) Clear() {
 	m.Sent = make([]MockMessagePair, 0, 10)
 	m.SentPublic = make([]MockMessagePair, 0, 10)
 	m.SentDirect = make([]MockMessagePair, 0, 10)
+}
+
+func (m *MockChatAdapter) MaxLength() int {
+	return m.MaxLengthRet
 }
 
 func (m *MockChatAdapter) Name() string {

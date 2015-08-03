@@ -54,6 +54,10 @@ type Adapter struct {
 	lines chan string
 }
 
+func (a *Adapter) MaxLength() int {
+	return -1
+}
+
 func (a *Adapter) Run() {
 	reader := bufio.NewReader(os.Stdin)
 

@@ -43,6 +43,7 @@ type Adapter interface {
 
 	// Name returns the name of the team/chat instance.
 	Name() string
+	MaxLength() int
 }
 
 type Robot interface {
