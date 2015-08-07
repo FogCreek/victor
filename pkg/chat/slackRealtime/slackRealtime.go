@@ -54,6 +54,7 @@ type channelGroupInfo struct {
 	ID        string
 	IsDM      bool
 	IsChannel bool
+	IsGeneral bool
 	UserID    string
 	// UserID is only stored for IM/DM's so we can then send a user a DM as a
 	// response if needed
@@ -214,6 +215,23 @@ func (adapter *SlackAdapter) GetPublicChannels() []chat.Channel {
 	return channels
 }
 
+// GetGeneralChannel returns the known slack channel that is considered to be
+// "general" by the slack API. If none is set or the adapter is not a member
+// of a general channel then nil is returned.
+func (adapter *SlackAdapter) GetGeneralChannel() chat.Channel {
+	adapter.mutex.RLock()
+	defer adapter.mutex.RUnlock()
+	for _, c := range adapter.channelInfo {
+		if c.IsChannel && c.IsGeneral {
+			return &chat.BaseChannel{
+				ChannelID:   c.ID,
+				ChannelName: c.Name,
+			}
+		}
+	}
+	return nil
+}
+
 // IsPotentialUser checks if a given string is potentially referring to a slack
 // user. Strings given to this function should be trimmed of leading whitespace
 // as it does not account for that (it is meant to be used with the fields
@@ -263,6 +281,7 @@ func (adapter *SlackAdapter) initAdapterInfo(info *slack.Info) {
 			Name:      channel.Name,
 			IsChannel: true,
 			IsDM:      false,
+			IsGeneral: channel.IsGeneral,
 		}
 	}
 	for _, group := range info.Groups {
@@ -347,6 +366,7 @@ func (adapter *SlackAdapter) getChannelFromSlack(channelID string) channelGroupI
 		ID:        channelObj.Id,
 		Name:      channelObj.Name,
 		IsChannel: true,
+		IsGeneral: channelObj.IsGeneral,
 	}
 	adapter.channelInfo[channelObj.Id] = info
 	return info
@@ -573,6 +593,7 @@ func (adapter *SlackAdapter) joinedChannel(channel slack.Channel, isChannel bool
 		Name:      channel.Name,
 		ID:        channel.Id,
 		IsChannel: isChannel,
+		IsGeneral: channel.IsGeneral,
 	}
 	if isChannel {
 		adapter.robot.ChatEvents() <- &definedEvents.ChannelEvent{

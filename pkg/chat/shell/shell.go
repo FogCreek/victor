@@ -132,6 +132,10 @@ func (a *Adapter) GetChannel(channelID string) chat.Channel {
 	return nil
 }
 
+func (a *Adapter) GetGeneralChannel() chat.Channel {
+	return defaultChannel
+}
+
 func (a *Adapter) GetAllUsers() []chat.User {
 	return []chat.User{realUser}
 }

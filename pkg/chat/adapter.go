@@ -40,6 +40,7 @@ type Adapter interface {
 	IsPotentialChannel(string) bool
 	GetAllUsers() []User
 	GetPublicChannels() []Channel
+	GetGeneralChannel() Channel
 
 	// Name returns the name of the team/chat instance.
 	Name() string

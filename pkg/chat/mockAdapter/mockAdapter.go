@@ -40,6 +40,7 @@ func init() {
 			IsPotentialChannelRet: true,
 			UserRet:               defaultUserRet,
 			ChannelRet:            defaultChannelRet,
+			GeneralChannelRet:     defaultChannelRet,
 			AllUsersRet:           []chat.User{defaultUserRet},
 			PublicChannelsRet:     []chat.Channel{defaultChannelRet},
 			NameRet:               "Mock Adapter",
@@ -63,6 +64,7 @@ type MockChatAdapter struct {
 	ChannelRet            chat.Channel
 	AllUsersRet           []chat.User
 	PublicChannelsRet     []chat.Channel
+	GeneralChannelRet     chat.Channel
 	IsPotentialUserRet    bool
 	IsPotentialChannelRet bool
 	MaxLengthRet          int
@@ -154,6 +156,10 @@ func (m *MockChatAdapter) GetAllUsers() []chat.User {
 
 func (m *MockChatAdapter) GetPublicChannels() []chat.Channel {
 	return m.PublicChannelsRet
+}
+
+func (m *MockChatAdapter) GetGeneralChannel() chat.Channel {
+	return m.GeneralChannelRet
 }
 
 // IsPotentialUser returns the mockAdapter's set "IsPotentialUserRet" property
