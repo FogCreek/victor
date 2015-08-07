@@ -39,6 +39,7 @@ type Adapter interface {
 	IsPotentialUser(string) bool
 	IsPotentialChannel(string) bool
 	GetAllUsers() []User
+	GetBot() User
 	GetPublicChannels() []Channel
 	GetGeneralChannel() Channel
 

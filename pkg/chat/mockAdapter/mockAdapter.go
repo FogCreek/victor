@@ -27,12 +27,12 @@ var (
 func init() {
 	chat.Register("mockAdapter", func(r chat.Robot) chat.Adapter {
 		nextIDMutex.Lock()
-		id := nextID
+		id := strconv.Itoa(nextID)
 		nextID++
 		nextIDMutex.Unlock()
 		return &MockChatAdapter{
 			robot:                 r,
-			id:                    strconv.Itoa(id),
+			id:                    id,
 			Sent:                  make([]MockMessagePair, 0, 10),
 			SentPublic:            make([]MockMessagePair, 0, 10),
 			SentDirect:            make([]MockMessagePair, 0, 10),
@@ -45,6 +45,11 @@ func init() {
 			PublicChannelsRet:     []chat.Channel{defaultChannelRet},
 			NameRet:               "Mock Adapter",
 			MaxLengthRet:          -1,
+			BotUserRet: &chat.BaseUser{
+				UserID:    id,
+				UserName:  r.Name(),
+				UserIsBot: true,
+			},
 		}
 	})
 }
@@ -63,6 +68,7 @@ type MockChatAdapter struct {
 	UserRet               chat.User
 	ChannelRet            chat.Channel
 	AllUsersRet           []chat.User
+	BotUserRet            chat.User
 	PublicChannelsRet     []chat.Channel
 	GeneralChannelRet     chat.Channel
 	IsPotentialUserRet    bool
@@ -144,6 +150,10 @@ func (m *MockChatAdapter) ID() string {
 // set to any chat.User instance (default value has full name "Fake User").
 func (m *MockChatAdapter) GetUser(string) chat.User {
 	return m.UserRet
+}
+
+func (m *MockChatAdapter) GetBot() chat.User {
+	return m.BotUserRet
 }
 
 func (m *MockChatAdapter) GetChannel(string) chat.Channel {

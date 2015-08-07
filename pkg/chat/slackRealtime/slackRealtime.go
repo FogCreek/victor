@@ -81,6 +81,10 @@ func init() {
 			directMessageID: make(map[string]string),
 			userInfo:        make(map[string]slack.User),
 			mutex:           &sync.RWMutex{},
+			botUser: &chat.BaseUser{
+				UserName:  r.Name(),
+				UserIsBot: true,
+			},
 		}
 	})
 }
@@ -117,7 +121,7 @@ type SlackAdapter struct {
 	directMessageID map[string]string
 	userInfo        map[string]slack.User
 	mutex           *sync.RWMutex
-	botID,
+	botUser         chat.User
 	formattedSlackID,
 	domain,
 	teamName string
@@ -198,6 +202,12 @@ func (adapter *SlackAdapter) GetAllUsers() []chat.User {
 	return users
 }
 
+func (adapter *SlackAdapter) GetBot() chat.User {
+	adapter.mutex.RLock()
+	defer adapter.mutex.RUnlock()
+	return adapter.botUser
+}
+
 // GetPublicChannels returns a slice of all channels that are known to the
 // chatbot.
 func (adapter *SlackAdapter) GetPublicChannels() []chat.Channel {
@@ -269,7 +279,11 @@ func (adapter *SlackAdapter) initAdapterInfo(info *slack.Info) {
 	adapter.mutex.Lock()
 	defer adapter.mutex.Unlock()
 	adapter.formattedSlackID = fmt.Sprintf("<@%s>", info.User.Id)
-	adapter.botID = info.User.Id
+	adapter.botUser = &chat.BaseUser{
+		UserName:  info.User.Name,
+		UserID:    info.User.Id,
+		UserIsBot: true,
+	}
 	adapter.domain = info.Team.Domain
 	adapter.teamName = info.Team.Name
 	for _, channel := range info.Channels {

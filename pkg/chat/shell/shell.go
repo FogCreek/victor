@@ -43,15 +43,21 @@ func init() {
 			stop:  make(chan bool),
 			id:    id,
 			lines: make(chan string),
+			botUser: &chat.BaseUser{
+				UserID:    id,
+				UserName:  r.Name(),
+				UserIsBot: true,
+			},
 		}
 	})
 }
 
 type Adapter struct {
-	robot chat.Robot
-	stop  chan bool
-	id    string
-	lines chan string
+	robot   chat.Robot
+	stop    chan bool
+	id      string
+	lines   chan string
+	botUser chat.User
 }
 
 func (a *Adapter) MaxLength() int {
@@ -123,6 +129,10 @@ func (a *Adapter) GetUser(userID string) chat.User {
 		return realUser
 	}
 	return nil
+}
+
+func (a *Adapter) GetBot() chat.User {
+	return a.botUser
 }
 
 func (a *Adapter) GetChannel(channelID string) chat.Channel {
