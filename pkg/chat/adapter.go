@@ -50,6 +50,7 @@ type Adapter interface {
 
 type Robot interface {
 	Name() string
+	RefreshUserName()
 	Store() store.Adapter
 	Chat() Adapter
 	Receive(Message)

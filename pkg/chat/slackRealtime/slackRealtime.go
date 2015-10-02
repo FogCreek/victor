@@ -82,7 +82,7 @@ func init() {
 			userInfo:        make(map[string]slack.User),
 			mutex:           &sync.RWMutex{},
 			botUser: &chat.BaseUser{
-				UserName:  r.Name(),
+				UserName:  "unknown", // We don't know our username until the adapter is started
 				UserIsBot: true,
 			},
 		}
@@ -277,6 +277,7 @@ func (adapter *SlackAdapter) Name() string {
 
 func (adapter *SlackAdapter) initAdapterInfo(info *slack.Info) {
 	adapter.mutex.Lock()
+	defer adapter.robot.RefreshUserName()
 	defer adapter.mutex.Unlock()
 	adapter.formattedSlackID = fmt.Sprintf("<@%s>", info.User.Id)
 	adapter.botUser = &chat.BaseUser{
@@ -478,6 +479,7 @@ func (adapter *SlackAdapter) monitorEvents() {
 	eventChannel := adapter.robot.ChatEvents()
 	for {
 		event := <-adapter.rtm.IncomingEvents
+
 		switch e := event.Data.(type) {
 		case *slack.InvalidAuthEvent:
 			errorChannel <- &definedEvents.InvalidAuth{}

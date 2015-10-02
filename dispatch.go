@@ -14,7 +14,7 @@ import (
 )
 
 // Printf style format for a bot's name regular expression
-const botNameRegexFormat = `(?i)^@%s\s*[:,]?\s*`
+const botNameRegexFormat = `^(?i)^@?%s\s*[:,]?\s*`
 
 // Name of default "help" command that is added on a call to
 // *dispatch.EnableHelpCommand().
@@ -163,6 +163,11 @@ func newDispatch(bot Robot) *dispatch {
 		botNameRegex:   regexp.MustCompile(fmt.Sprintf(botNameRegexFormat, bot.Name())),
 		handlerMutex:   &sync.RWMutex{},
 	}
+}
+
+// We may not know our username until after we start running.
+func (d *dispatch) RefreshUserName() {
+	d.botNameRegex = regexp.MustCompile(fmt.Sprintf(botNameRegexFormat, d.robot.Name()))
 }
 
 // appendInOrderWithoutRepeats functions identically to the built-in "append"

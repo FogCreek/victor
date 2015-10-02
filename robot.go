@@ -23,6 +23,7 @@ type Robot interface {
 	Run()
 	Stop()
 	Name() string
+	RefreshUserName()
 	HandleCommand(HandlerDocPair)
 	HandleCommandPattern(string, HandlerDocPair)
 	HandleCommandRegexp(*regexp.Regexp, HandlerDocPair)
@@ -100,7 +101,6 @@ func New(config Config) *robot {
 	}
 
 	bot := &robot{
-		name:             botName,
 		incoming:         make(chan chat.Message),
 		stop:             make(chan struct{}),
 		chatErrorChannel: make(chan events.ErrorEvent),
@@ -109,8 +109,8 @@ func New(config Config) *robot {
 	}
 
 	bot.store = storeInitFunc(bot)
-	bot.dispatch = newDispatch(bot)
 	bot.chat = chatInitFunc(bot)
+	bot.dispatch = newDispatch(bot)
 	return bot
 }
 
@@ -122,6 +122,7 @@ func (r *robot) Receive(m chat.Message) {
 // Run starts the robot.
 func (r *robot) Run() {
 	r.chat.Run()
+
 	go func() {
 		for {
 			select {
@@ -145,7 +146,7 @@ func (r *robot) Stop() {
 
 // Name returns the name of the bot
 func (r *robot) Name() string {
-	return r.name
+	return r.Chat().GetBot().Name()
 }
 
 // Store returns the data store adapter
