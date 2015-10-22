@@ -45,7 +45,7 @@ func init() {
 			lines: make(chan string),
 			botUser: &chat.BaseUser{
 				UserID:    id,
-				UserName:  r.Name(),
+				UserName:  "unknown",
 				UserIsBot: true,
 			},
 		}
